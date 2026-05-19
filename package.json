@@ -1,0 +1,33 @@
+{
+  "name": "dxm-mcp-server",
+  "version": "1.0.0",
+  "description": "Crownpeak DXM MCP Server",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "dxm-mcp-server": "server.js",
+    "dxm-mcp-server-readonly": "server-readonly.js",
+    "dxm-mcp-server-http": "server-http.js",
+    "dxm-mcp-server-readonly-http": "server-readonly-http.js"
+  },
+  "scripts": {
+    "server": "node server.js",
+    "server:readonly": "node server-readonly.js",
+    "server:http": "node server-http.js",
+    "server:readonly:http": "node server-readonly-http.js",
+    "client": "node client.js",
+    "profile": "node tools/profile-manager.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "crownpeak-dxm-accessapi-helper": "^1.2.0",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.1"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
