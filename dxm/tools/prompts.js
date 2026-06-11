@@ -615,6 +615,17 @@ Call list_users and present each user's identifying details.`
     );
 
     server.prompt(
+        "publishing_errors",
+        "Show a report of any recent DXM publishing errors",
+        {},
+        () => userMessage(
+`Show a report of any recent publishing errors.
+
+Call publishing_errors and present the returned list of assets.`
+        )
+    );
+
+    server.prompt(
         "site_summary",
         "Show a summary report of the DXM instance",
         {},

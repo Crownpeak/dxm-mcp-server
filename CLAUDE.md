@@ -98,7 +98,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      build.js       compileLibrary, compileProject, compileTemplates
      properties.js  listAttachments, readSiteRoot, setModel, setTemplate, setWorkflow
      users.js       listUsers, createUser
-     report.js      siteSummary
+     report.js      siteSummary, publishingErrors
      profiles.js    read/write/list/delete credential profiles in ~/.dxm-mcp/profiles.json
    ```
 
@@ -119,7 +119,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      build.js       compile_library, compile_project, compile_templates
      properties.js  list_attachments, read_site_root, set_model, set_template, set_workflow
      users.js       list_users, create_user
-     report.js      site_summary
+     report.js      site_summary, publishing_errors
      prompts.js     All server.prompt(...) registrations in one place
    ```
 
@@ -131,7 +131,7 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ### Key patterns
 
-- **`mapAsset(cms, a)`** in `dxm/util.js` is the canonical asset shape returned to clients: `{ id, label, type, fullPath, status, folder_id }`. The numeric `type` is decoded to its name via `Util.AssetType`. `Dxm._mapAsset(a)` is a thin shim that calls it with `this._cms`. Use this for any new method that returns an asset.
+- **`mapAsset(cms, a)`** in `dxm/util.js` is the canonical asset shape returned to clients: `{ id, label, type, fullPath, status, folder_id, error_msg }`. The numeric `type` is decoded to its name via `Util.AssetType`. `Dxm._mapAsset(a)` is a thin shim that calls it with `this._cms`. Use this for any new method that returns an asset.
 
 - **`toolHandler(fn)`** in `dxm/tools/util.js` wraps every tool to (a) race against a 30 s timeout (`TOOL_TIMEOUT_MS`) and (b) catch errors into `{ content: [...], isError: true }`. The timeout exists because the underlying CJS library has a recursive 429 retry whose `attempt` counter resets each call, causing infinite recursion / stack overflow — `Promise.race` is the guardrail. Always wrap new tool handlers with it.
 
@@ -159,10 +159,10 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ## Tool roster
 
-53 tools and 54 prompts. Read tools (21) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 16); write tools (32) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
+54 tools and 55 prompts. Read tools (22) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 17); write tools (32) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
 
-**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `site_summary`.
+**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `publishing_errors`, `site_summary`.
 
 **Write tools**: `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
 
-**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
+**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.

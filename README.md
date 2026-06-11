@@ -10,7 +10,7 @@ The server exposes **53 tools and 54 prompts** spanning the read and write surfa
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/crownpeak/dqm-mcp-server/ dxm-mcp-server
+git clone https://github.com/crownpeak/dxm-mcp-server/ dxm-mcp-server
 cd dxm-mcp-server
 npm install
 
@@ -41,7 +41,7 @@ npm run server:readonly   # safe read-only subset
 ## Installation
 
 ```bash
-git clone https://github.com/crownpeak/dxm-mxp-server/ dxm-mcp-server
+git clone https://github.com/crownpeak/dxm-mcp-server/ dxm-mcp-server
 cd dxm-mcp-server
 npm install
 ```
@@ -201,7 +201,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (142 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (144 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 

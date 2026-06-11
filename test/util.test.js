@@ -21,9 +21,9 @@ describe("mapAsset", () => {
     const cms = makeFakeCms();
 
     test("decodes numeric asset type to its name", () => {
-        const raw = { id: 7, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3 };
+        const raw = { id: 7, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3, error_msg: "" };
         assert.deepEqual(mapAsset(cms, raw), {
-            id: 7, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3
+            id: 7, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3, error_msg: ""
         });
     });
 

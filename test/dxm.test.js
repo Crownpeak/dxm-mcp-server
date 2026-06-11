@@ -54,7 +54,7 @@ describe("Dxm constructor + env", () => {
         const dxm = new Dxm({});
         for (const name of ["findAsset", "getPath", "listFolder", "listFields",
             "downloadAsset", "viewOutput", "getPublishLinks",
-            "listWorkflows", "getWorkflow", "listAttachments",
+            "listWorkflows", "getWorkflow", "listAttachments", "publishingErrors",
             "readSiteRoot", "listUsers", "siteSummary"]) {
             assert.equal(typeof dxm[name], "function", `expected ${name} to be a method`);
         }
