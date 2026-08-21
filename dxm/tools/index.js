@@ -8,8 +8,10 @@ import * as Properties from "./properties.js";
 import * as Users from "./users.js";
 import * as Report from "./report.js";
 import * as Prompts from "./prompts.js";
+import { installDebugLogging } from "./util.js";
 
 export function registerReadTools(server, dxm) {
+    installDebugLogging(server);
     Auth.registerReadTools(server, dxm);
     Asset.registerReadTools(server, dxm);
     Binary.registerReadTools(server, dxm);
@@ -21,6 +23,7 @@ export function registerReadTools(server, dxm) {
 }
 
 export function registerWriteTools(server, dxm) {
+    installDebugLogging(server);
     Asset.registerWriteTools(server, dxm);
     Binary.registerWriteTools(server, dxm);
     Publish.registerWriteTools(server, dxm);
@@ -34,6 +37,7 @@ export function registerWriteTools(server, dxm) {
 // login/logout/list_profiles/delete_profile mutate the shared Dxm singleton, which has no
 // coherent meaning across concurrent stateless HTTP requests. Credentials must come from .env.
 export function registerReadToolsHttp(server, dxm) {
+    installDebugLogging(server);
     Auth.registerWhoami(server, dxm);
     Asset.registerReadTools(server, dxm);
     Binary.registerReadTools(server, dxm);

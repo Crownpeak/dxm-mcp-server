@@ -4,6 +4,7 @@ import { CallToolResultSchema, ElicitRequestSchema, ListToolsResultSchema } from
 import * as readline from "node:readline/promises";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isDebugEnabled, truncate } from "./dxm/debug.js";
 
 // Single shared readline interface for the whole process. Creating a second
 // readline.Interface while one is already attached to stdin causes every
@@ -181,10 +182,13 @@ async function processQuery(client, query) {
         }
     }
 
+    if (isDebugEnabled()) console.error(`[dxm-mcp-client] → ${tool.name} ${truncate(arguments_)}`);
+    const start = Date.now();
     const result = await client.request(
         { method: "tools/call", params: { name: tool.name, arguments: arguments_ } },
         CallToolResultSchema
     );
+    if (isDebugEnabled()) console.error(`[dxm-mcp-client] ← ${tool.name} (${Date.now() - start}ms) ${truncate(result)}`);
 
     const block = result.content[0];
     if (!block) return "OK";
@@ -220,6 +224,11 @@ async function main() {
     const transport = new StdioClientTransport({
         command,
         "args": [process.argv[2]],
+        // StdioClientTransport only inherits a security allowlist of env vars by default (PATH,
+        // USERPROFILE, etc. — see the SDK's getDefaultEnvironment) — not the full process env. So
+        // DXM_MCP_DEBUG set in the shell running this client wouldn't otherwise reach the spawned
+        // server process; forward it explicitly so one flag turns on logging on both ends.
+        ...(isDebugEnabled() ? { env: { DXM_MCP_DEBUG: process.env.DXM_MCP_DEBUG } } : {}),
     });
 
     const client = new Client(

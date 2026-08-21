@@ -34,6 +34,20 @@ The test client (`client.js`) is a quote-aware REPL for invoking tools by name w
 
 `.env` (gitignored) is a development-convenience default. If all five keys — `CMS_SERVER`, `CMS_INSTANCE`, `CMS_USERNAME`, `CMS_PASSWORD`, `CMS_API_KEY` — are present at startup, the `Dxm` instance is seeded with them and the first tool call will auto-authenticate. If any key is missing the server still starts; the first tool call will fail with a clear "Not authenticated" error and the client must call the `login` tool.
 
+## Debugging
+
+Set `DXM_MCP_DEBUG=1` (any truthy value) to get a full trace of both traffic legs to stderr — never stdout, since stdout is the MCP JSON-RPC wire for the stdio servers and any stray write there corrupts the protocol stream. Three chokepoints, one env var:
+
+- **`installDebugLogging(server)`** (`dxm/tools/util.js`) monkey-patches `server.tool` so every tool call logs `[dxm-mcp] → name args` / `← name (Nms) result`. It's called once per server instance from `registerReadTools`/`registerWriteTools`/`registerReadToolsHttp` in `dxm/tools/index.js` (idempotent via a flag on the server object, since the full `server.js` calls two of those on the same server). Wrapping at the `server.tool` level — rather than inside `toolHandler` — means every tool is covered from one place regardless of which domain file registers it, and it also covers `login_browser`, which intentionally isn't wrapped in `toolHandler`.
+- **`installFetchLogging(cms)`** (`dxm/index.js`) monkey-patches `cms.fetch` — an *instance property* on the helper's `api` class (`this.fetch = require("node-fetch")`), not a module-level import — so this hooks every HTTP call the helper makes without ever touching `node_modules`. Every domain object (`Asset`, `Workflow`, `User`, ...) funnels through this one `fetch` via the helper's `postRequest`/`getCmsRequest`/`getCmsRequestRaw`, so one patch point covers all of them. Logs `[dxm-http] → METHOD url headers body` / `← status (Nms) body`; binary responses (by content-type) log a `<binary, content-type=...>` placeholder instead of dumping bytes.
+- `client.js` logs `[dxm-mcp-client] → name args` / `← name (Nms) result` around each `tools/call` request, gated the same way.
+
+**Redaction is mandatory, not optional.** `x-api-key` and `cookie` headers are redacted, and any JSON body field matching `/password|api[_-]?key|secret|token|cookie/i` is redacted before logging (`redactJson` in `dxm/index.js`) — this is what keeps the `/Auth/Authenticate` request body's plaintext password out of the log. Debug output is meant to be safe to paste into a bug report; never add a new logged field without checking it against that regex first.
+
+**Env var propagation gotcha.** `StdioClientTransport` only inherits a security allowlist of env vars by default (`PATH`, `USERPROFILE`, etc. — see the SDK's `getDefaultEnvironment`), not the full parent `process.env`. `client.js` explicitly forwards `DXM_MCP_DEBUG` into the spawned server's `env` for this reason — the same applies to any other custom env var a future feature might need to pass through.
+
+`dxm/debug.js` holds the shared `isDebugEnabled()` / `truncate()` helpers used by all three chokepoints above.
+
 ## Authentication
 
 Six tools (`login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`) live in `registerReadTools` (in `dxm/tools/auth.js`) so both stdio server variants expose them. Credentials enter the process only from `.env` (env vars), from a named local **profile**, or from a **browser-captured session** — never typed into an MCP chat. The MCP elicitation spec (2025-06-18) explicitly forbids using elicitation for sensitive data, so the LLM-context-bypassing "client UI prompts for password" path was removed; profiles, `.env`, and `login_browser` cover the same use cases without violating the spec.
@@ -100,6 +114,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      users.js       listUsers, createUser
      report.js      siteSummary, publishingErrors
      profiles.js    read/write/list/delete credential profiles in ~/.dxm-mcp/profiles.json
+     debug.js       isDebugEnabled/truncate shared by the DXM_MCP_DEBUG logging (see "Debugging")
    ```
 
    Each domain module exports plain `function name(dxm, ...args)` functions — no class, no `this`. They call `await dxm._ensureLoggedIn()` first and use `mapAsset(dxm._cms, raw)` from `dxm/util.js` for any returned asset.

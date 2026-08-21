@@ -1,3 +1,5 @@
+import { isDebugEnabled, truncate } from "../debug.js";
+
 export const IMAGE_MIME_TYPES = {
     jpg:  "image/jpeg",
     jpeg: "image/jpeg",
@@ -61,6 +63,38 @@ export function toolHandler(fn) {
             // 30-second hang at the end of test files that invoke wrapped handlers.
             clearTimeout(timer);
         }
+    };
+}
+
+// Monkey-patches server.tool so every registered tool logs its name, input, and output/error to
+// stderr when DXM_MCP_DEBUG is set. Wrapping at this level (rather than inside toolHandler) means
+// every tool call is covered from one place regardless of which domain file registers it, and it
+// also covers login_browser, which intentionally isn't wrapped in toolHandler (see CLAUDE.md).
+// Idempotent per server instance: registerReadTools/registerWriteTools/registerReadToolsHttp can
+// all call this on the same server without double-wrapping.
+export function installDebugLogging(server) {
+    if (server.__dxmMcpDebugInstalled) return;
+    server.__dxmMcpDebugInstalled = true;
+    const originalTool = server.tool.bind(server);
+    server.tool = (name, ...rest) => {
+        const handlerIndex = rest.length - 1;
+        const handler = rest[handlerIndex];
+        if (typeof handler === "function") {
+            rest[handlerIndex] = async (...handlerArgs) => {
+                if (!isDebugEnabled()) return handler(...handlerArgs);
+                console.error(`[dxm-mcp] → ${name} ${truncate(handlerArgs[0] ?? {})}`);
+                const start = Date.now();
+                try {
+                    const result = await handler(...handlerArgs);
+                    console.error(`[dxm-mcp] ← ${name} (${Date.now() - start}ms) ${truncate(result)}`);
+                    return result;
+                } catch (e) {
+                    console.error(`[dxm-mcp] ✗ ${name} (${Date.now() - start}ms) threw: ${e?.message ?? e}`);
+                    throw e;
+                }
+            };
+        }
+        return originalTool(name, ...rest);
     };
 }
 

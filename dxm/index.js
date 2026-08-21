@@ -1,5 +1,6 @@
 import CmsApi from "crownpeak-dxm-accessapi-helper";
 import { mapAsset } from "./util.js";
+import { isDebugEnabled, truncate } from "./debug.js";
 import * as Assets from "./assets.js";
 import * as Binary from "./binary.js";
 import * as Publish from "./publish.js";
@@ -17,6 +18,73 @@ function mixin(target, mod) {
     }
 }
 
+// Matches header/field names that must never appear in a debug log — e.g. the "password" field
+// in the /Auth/Authenticate request body, or a "cookie" field echoed back in a response.
+const SECRET_FIELD_RE = /password|api[_-]?key|secret|token|cookie/i;
+
+// Redacts sensitive fields from a JSON-ish string before it hits the log. Non-JSON strings (or
+// anything that fails to parse) pass through unredacted — this only ever sees our own request
+// bodies and the CMS's JSON responses, never arbitrary user text.
+function redactJson(bodyString) {
+    if (typeof bodyString !== "string") return bodyString;
+    let parsed;
+    try {
+        parsed = JSON.parse(bodyString);
+    } catch {
+        return bodyString;
+    }
+    if (parsed === null || typeof parsed !== "object") return bodyString;
+    const redacted = Object.fromEntries(
+        Object.entries(parsed).map(([k, v]) => [k, SECRET_FIELD_RE.test(k) ? "<redacted>" : v])
+    );
+    return JSON.stringify(redacted);
+}
+
+// Debug-only: wraps the helper's `fetch` — an instance property (see the CJS package's api.js
+// constructor: `this.fetch = require("node-fetch")`), not a module-level import — so this can be
+// monkey-patched from here without ever touching node_modules. Logs every request/response for
+// every domain object (Asset, Workflow, User, ...), since they all funnel through this one fetch
+// via the helper's postRequest/getCmsRequest/getCmsRequestRaw. Redacts secret headers and fields
+// (x-api-key, cookie, password, ...) so the log is safe to paste into a bug report — most notably
+// the plaintext username/password in the /Auth/Authenticate request body.
+function installFetchLogging(cms) {
+    const realFetch = cms.fetch;
+    cms.fetch = async (url, options) => {
+        const headers = { ...options.headers };
+        if (headers.cookie) headers.cookie = "<redacted>";
+        if (headers["x-api-key"]) headers["x-api-key"] = "<redacted>";
+        console.error(`[dxm-http] → ${options.method} ${url} headers=${truncate(headers)} body=${truncate(redactJson(options.body))}`);
+        const start = Date.now();
+        try {
+            const response = await realFetch(url, options);
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!/json|text/i.test(contentType)) {
+                console.error(`[dxm-http] ← ${response.status} (${Date.now() - start}ms) <binary, content-type=${contentType || "unknown"}>`);
+                return response;
+            }
+            // Deliberately NOT response.clone(): node-fetch v2's clone() tees the body into two
+            // PassThrough streams. Reading one (for the log) while the caller reads the other
+            // later works for small bodies but deadlocks on larger ones — the un-drained tee
+            // fills its buffer, backpressure pauses the shared underlying stream, and the tee
+            // we're actively reading then stalls waiting for data that never arrives. Instead,
+            // read the body ourselves exactly once and hand back a minimal shim exposing only
+            // what postRequest/getCmsRequest actually call: .json(), .headers.get(), .status.
+            const bodyText = await response.text();
+            console.error(`[dxm-http] ← ${response.status} (${Date.now() - start}ms) ${truncate(redactJson(bodyText))}`);
+            return {
+                status: response.status,
+                ok: response.ok,
+                headers: response.headers,
+                json: async () => JSON.parse(bodyText),
+                text: async () => bodyText
+            };
+        } catch (e) {
+            console.error(`[dxm-http] ✗ (${Date.now() - start}ms) ${e?.message ?? e}`);
+            throw e;
+        }
+    };
+}
+
 export default class {
 
     _cms = null;
@@ -26,6 +94,7 @@ export default class {
 
     constructor(env) {
         this._cms = new CmsApi();
+        if (isDebugEnabled()) installFetchLogging(this._cms);
         this._credentials = this._readEnv(env);
         for (const mod of [Assets, Binary, Publish, Workflow, Build, Properties, Users, Report]) {
             mixin(this, mod);

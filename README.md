@@ -205,7 +205,42 @@ Runs the full suite (144 tests) using Node's built-in test runner. No network ca
 
 ---
 
+## Debugging
+
+If a tool call from `client.js` (or any other MCP client) isn't behaving the way you expect, set `DXM_MCP_DEBUG=1` to get a full trace of both legs of traffic — the MCP calls between client and server, and the HTTPS calls between the server and the DXM backend:
+
+```bash
+DXM_MCP_DEBUG=1 npm run client server.js
+```
+
+```powershell
+# PowerShell
+$env:DXM_MCP_DEBUG = "1"
+npm run client server.js
+```
+
+The flag works the same way for any of the four server entry points — set it before starting whichever one you're using. With it on, you'll see three kinds of line on stderr (never stdout, so it can't corrupt the MCP protocol stream):
+
+```
+[dxm-mcp-client] → find_asset {"query":"12345"}
+[dxm-mcp] → find_asset {"query":"12345"}
+[dxm-http] → POST https://cms.crownpeak.net/CPUK/cpt_webservice/accessapi/Auth/Authenticate headers={...} body={"instance":"CPUK","username":"you@example.com","password":"<redacted>",...}
+[dxm-http] ← 200 (312ms) {"resultCode":"conWS_Success",...}
+[dxm-mcp] ← find_asset (340ms) {"content":[...]}
+[dxm-mcp-client] ← find_asset (342ms) {"content":[...]}
+```
+
+- `[dxm-mcp-client]` — the tool call `client.js` sends and the result it gets back.
+- `[dxm-mcp]` — the same call as seen from inside the server, for every tool (including `login_browser`, which bypasses the usual timeout wrapper).
+- `[dxm-http]` — the actual request/response between the server and the DXM backend, covering every domain (`Asset`, `Workflow`, `User`, ...) since they all funnel through the same HTTP layer.
+
+`x-api-key` and `cookie` headers, and any JSON body field named `password`, `apiKey`, `secret`, `token`, or `cookie`, are redacted before logging — the output is meant to be safe to paste into a bug report. Response bodies that aren't JSON/text (image and file downloads) are logged as a placeholder rather than dumped in full.
+
+---
+
 ## Troubleshooting
+
+If none of the entries below match what you're seeing, turn on `DXM_MCP_DEBUG=1` (see [Debugging](#debugging)) to see exactly which request is failing and how.
 
 **"Not authenticated. Call `login_browser`, `login`, or set CMS_* in .env."**
 The server has no active credentials or session. Either fill out `.env` and restart, call `login profile=<name>` if you have a saved profile, or run `login_browser server=… instance=…` to capture a session through the browser.
@@ -223,7 +258,7 @@ The CMS UI authenticated the user, but no follow-up AccessAPI XHR fired within t
 DNS rebinding protection rejected the request. If you're accessing from a non-loopback origin, you've likely intentionally bound to a public address — set `HOST=0.0.0.0` and use a reverse proxy with a known hostname for production setups.
 
 **Tool call hangs and eventually times out after 30 seconds.**
-The underlying CMS request didn't return in time. The 30-second cap exists to prevent a known recursive-retry bug in the helper library from running forever. Check the CMS itself or your network connectivity.
+The underlying CMS request didn't return in time. The 30-second cap exists to prevent a known recursive-retry bug in the helper library from running forever. Check the CMS itself or your network connectivity — running with `DXM_MCP_DEBUG=1` will show whether the request ever reached the CMS and what, if anything, came back before the timeout fired.
 
 **`upload_file` fails with "File ... is X MB; the upload cap is 11 MB."**
 Binary uploads are capped at ~11 MB of raw bytes. Split larger files or use a different upload path.
