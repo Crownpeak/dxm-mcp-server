@@ -110,7 +110,8 @@ Three layers, all in ES Modules (`"type": "module"`):
      publish.js     getPublishLinks, publishAssets, republishAssets
      workflow.js    listWorkflows, getWorkflow, routeAsset, executeWorkflowCommand
      build.js       compileLibrary, compileProject, compileTemplates
-     properties.js  listAttachments, readSiteRoot, setModel, setTemplate, setWorkflow
+     properties.js  listAttachments, readSiteRoot, listVersions, getVersion,
+                    revertToVersion, setModel, setTemplate, setWorkflow
      users.js       listUsers, createUser
      report.js      siteSummary, publishingErrors
      profiles.js    read/write/list/delete credential profiles in ~/.dxm-mcp/profiles.json
@@ -132,7 +133,8 @@ Three layers, all in ES Modules (`"type": "module"`):
      publish.js     list_links, publish_file, republish_file
      workflow.js    list_workflows, get_workflow, route_file, execute_workflow_command
      build.js       compile_library, compile_project, compile_templates
-     properties.js  list_attachments, read_site_root, set_model, set_template, set_workflow
+     properties.js  list_attachments, read_site_root, list_versions, get_version,
+                    revert_to_version, set_model, set_template, set_workflow
      users.js       list_users, create_user
      report.js      site_summary, publishing_errors
      prompts.js     All server.prompt(...) registrations in one place
@@ -168,16 +170,32 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 - **`AssetProperties.setWorkflow`** URL has a typo (`SetWOrkflow` capital O) — but the server accepts it. We pass through the helper, which already encodes the typo.
 
+- **Version history** (`list_versions` / `get_version`, implemented in `dxm/properties.js`) is the one place we bypass the helper's named methods: the helper has no wrapper for `/AssetProperties/Versions*`, so these call `cms.Util.makeCall(cms, path, body)` — the same generic primitive `AssetProperties.attachments()` and friends use internally. That keeps the feature in this repo rather than requiring a helper release: `package.json` tracks the published `^1.2.0`, so helper methods added only to a local checkout would vanish on a fresh `npm install`. If these ever move into the helper, publish it first and bump the dependency. Four API quirks are worked around, all verified against a live instance — **do not "simplify" any of them away**:
+  - **Pages are 1-based.** `currentPage: 0` returns an empty `assetVersions` array *with `resultCode: conWS_Success`*, so a 0-based loop looks exactly like "this asset has no history".
+  - **The last page is padded with a sentinel row whose `versionId` is `-1`.** `listVersions` filters these out; a page whose real-row count falls below `pageSize` after filtering is treated as the last page.
+  - **`totalCount` is unreliable** — it disagrees with the actual row count depending on `pageSize` (observed 6 vs 5 for the same asset). `listVersions` pages to exhaustion instead of computing a page count from it, with `MAX_VERSION_PAGES` as the safety net.
+  - **`/Versions/Content` silently ignores an unknown `versionId`** and returns the asset's *current* content with a success result code. `getVersion` therefore resolves the requested id against the real history first and throws if it's absent — without that guard the tool would hand an LLM the wrong version's data with no indication anything was wrong. (Verified: a valid id returned 166 fields where a bogus one returned the live asset's 109.)
+
+  On the wire the version rows are camelCase — note `modified_On` (capital O) — and `name` is the **user who made the change**, not the asset's name; `mapVersion` renames these to `modifiedOn` / `modifiedBy`. `getVersion` returns its fields in the same `{ name, value }` shape as `list_fields`, which is what makes the `compare_version` prompt a diff with no extra tool.
+
+  `revertToVersion` (tool: `revert_to_version`, **write** — so it is absent from both read-only servers) calls `/Asset/RevertToVersion` with `{ assetId, versionId, isConfirmed: true }` and shares the same `resolveVersion` guard, which matters more here than on the read path: refusing an unknown version id prevents a bad *write* rather than a bad read, and the guard is asserted to make no revert call at all when it rejects. It lives in `properties.js` with the rest of the version family rather than in `assets.js` despite the `/Asset/` path — the same concept-over-path grouping that puts `routeAsset` in `workflow.js`. Two notes:
+  - **`isConfirmed` is hardcoded `true` and not exposed as a tool parameter.** The API also accepts `false`, but what that returns was never probed, because probing it means writing to a real asset. Don't expose the flag without first establishing what the false branch actually does.
+  - **The mutation itself is unverified against a live instance** for the same reason. The request/response shapes come from the Swagger v3 spec; the unit tests cover the wrapper's own logic. `newVersionId` is read as `response.newVersionId ?? response.NewVersionId` because Swagger declares it PascalCase while every other response in this family arrives camelCase, and which one the wire actually uses is untested.
+
+  Reverting appends a new version rather than rewriting history, so the pre-revert content stays recoverable — the `revert_to_version` prompt says so, and it also requires an explicit user confirmation plus a `compare_version`-style diff before it will call the tool.
+
+  One adjacent endpoint remains unexposed: `/AssetProperties/Versions/Source` (`{ assetId, versionId }` → `{ source }`), which would be a read tool.
+
 ### CJS interop note
 
 `crownpeak-dxm-accessapi-helper` is a CommonJS module. Import it as `import CmsApi from "crownpeak-dxm-accessapi-helper"` (default import, then `new CmsApi()`). A namespace import will give you `{ default: Class }`, not the class.
 
 ## Tool roster
 
-54 tools and 55 prompts. Read tools (22) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 17); write tools (32) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
+57 tools and 59 prompts. Read tools (24) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 19); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
 
-**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `publishing_errors`, `site_summary`.
+**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
 
-**Write tools**: `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
+**Write tools**: `revert_to_version`, `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
 
-**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
+**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.

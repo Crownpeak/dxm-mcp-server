@@ -128,7 +128,7 @@ const fullSession = {
     instance: "INST",
     apiKey: "k",
     cookie: ["ASP.NET_SessionId=abc; Path=/; HttpOnly"],
-    username: "richard.lund@example.com"
+    username: "test.user@example.com"
 };
 
 describe("Dxm.setSession + _session", () => {
@@ -138,7 +138,7 @@ describe("Dxm.setSession + _session", () => {
         dxm.setSession(fullSession);
         assert.equal(dxm._credentials, null);
         assert.equal(dxm._session.host, "cms.example.net");
-        assert.equal(dxm._session.username, "richard.lund@example.com");
+        assert.equal(dxm._session.username, "test.user@example.com");
     });
 
     test("setSession defaults username to null when omitted", () => {
@@ -170,7 +170,7 @@ describe("Dxm.setSession + _session", () => {
         assert.equal(state.mode, "session");
         assert.equal(state.server, "cms.example.net");
         assert.equal(state.instance, "INST");
-        assert.equal(state.username, "richard.lund@example.com");
+        assert.equal(state.username, "test.user@example.com");
         assert.equal(state.authenticated, false); // not yet applied to _cms
     });
 

@@ -604,6 +604,82 @@ Call list_workflows. Present each workflow's name and ID, and summarize its stat
     );
 
     server.prompt(
+        "list_versions",
+        "Show the version history of a DXM asset",
+        { asset: z.string().describe("A numeric asset ID or a full CMS path") },
+        ({ asset }) => userMessage(
+`Show the version history of the DXM asset identified by "${asset}".
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+2. Call list_versions with the numeric ID.
+3. Present the history newest first as a table: version ID, when it was modified, who modified it, the version type, and the change comment.
+4. Note that the version IDs are what get_version needs to retrieve a specific version's content.`
+        )
+    );
+
+    server.prompt(
+        "get_version",
+        "Retrieve the field values stored in one specific version of a DXM asset",
+        {
+            asset: z.string().describe("A numeric asset ID or a full CMS path"),
+            version: z.string().optional().describe("The version ID to retrieve (optional — omit to be shown the history first)")
+        },
+        ({ asset, version }) => userMessage(
+`Retrieve a specific stored version of the DXM asset identified by "${asset}".
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+${version
+    ? `2. Call get_version with the numeric asset ID and version_id ${version}.`
+    : `2. Call list_versions with the numeric ID and show the available versions, then ask which version ID to retrieve before calling get_version.`}
+3. Present the version's metadata (who changed it, when, and the comment) followed by its field values.
+4. The version_id must be one returned by list_versions — do not guess one, because an invalid ID is rejected.`
+        )
+    );
+
+    server.prompt(
+        "compare_version",
+        "Compare a stored version of a DXM asset against its current field values",
+        {
+            asset: z.string().describe("A numeric asset ID or a full CMS path"),
+            version: z.string().optional().describe("The version ID to compare against (optional — omit to be shown the history first)")
+        },
+        ({ asset, version }) => userMessage(
+`Compare a stored version of the DXM asset identified by "${asset}" against its current content.
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+${version
+    ? `2. Call get_version with the numeric asset ID and version_id ${version}.`
+    : `2. Call list_versions with the numeric ID, show the available versions, and ask which version ID to compare before calling get_version.`}
+3. Call list_fields with the numeric ID to read the asset's current field values.
+4. Both calls return fields in the same { name, value } shape. Compare them and report only the differences: fields added, removed, or changed, showing the old and new value for each.
+5. If nothing differs, say so explicitly.`
+        )
+    );
+
+    server.prompt(
+        "revert_to_version",
+        "Revert a DXM asset's content back to an earlier stored version, after confirming the change",
+        {
+            asset: z.string().describe("A numeric asset ID or a full CMS path"),
+            version: z.string().optional().describe("The version ID to revert to (optional — omit to be shown the history first)")
+        },
+        ({ asset, version }) => userMessage(
+`Revert the DXM asset identified by "${asset}" to an earlier stored version.
+
+This changes the asset's live content, so do not call revert_to_version until the user has confirmed.
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+2. Call list_versions with the numeric ID to show the available versions.
+${version
+    ? `3. Call get_version with version_id ${version} and summarise what reverting would restore.`
+    : `3. Ask which version ID to revert to, then call get_version for it and summarise what reverting would restore.`}
+4. Call list_fields to read the current content, and report the differences the revert would apply.
+5. Ask the user to confirm explicitly. Only then call revert_to_version with the asset ID and version ID.
+6. Report the new version ID returned. Note that reverting appends a new version rather than deleting history, so the pre-revert content remains recoverable.`
+        )
+    );
+
+    server.prompt(
         "list_users",
         "List the users visible to the authenticated DXM session",
         {},

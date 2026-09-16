@@ -15,9 +15,36 @@ export function registerReadTools(server, dxm) {
         { id: z.number().describe("The ID of the asset (typically a site root)") },
         toolHandler(async ({id}) => jsonText(await dxm.readSiteRoot(id)))
     );
+
+    server.tool(
+        "list_versions",
+        "List the version history of a DXM asset, newest first. Each entry gives the version ID, the user who made the change, when it was made, the change comment, and the version type.",
+        { id: z.number().describe("The ID of the asset") },
+        toolHandler(async ({id}) => jsonText(await dxm.listVersions(id)))
+    );
+
+    server.tool(
+        "get_version",
+        "Get the stored field values of one specific version of a DXM asset, in the same shape as list_fields so it can be compared against the live asset. version_id must come from list_versions — an unknown ID is rejected rather than silently returning the asset's current content.",
+        {
+            id: z.number().describe("The ID of the asset"),
+            version_id: z.number().describe("The version ID to retrieve, as returned by list_versions")
+        },
+        toolHandler(async ({id, version_id}) => jsonText(await dxm.getVersion(id, version_id)))
+    );
 }
 
 export function registerWriteTools(server, dxm) {
+    server.tool(
+        "revert_to_version",
+        "Revert a DXM asset's content back to an earlier stored version. This modifies the asset: it appends a new version whose content is the old one's (no history is lost). version_id must come from list_versions — an unknown ID is rejected. Consider calling get_version first to confirm what the revert will restore.",
+        {
+            id: z.number().describe("The ID of the asset to revert"),
+            version_id: z.number().describe("The version ID to revert the asset's content to, as returned by list_versions")
+        },
+        toolHandler(async ({id, version_id}) => jsonText(await dxm.revertToVersion(id, version_id)))
+    );
+
     server.tool(
         "set_model",
         "Bind one or more DXM assets to a content model",

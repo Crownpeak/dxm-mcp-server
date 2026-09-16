@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant — Claude Desktop, Claude Code, or any MCP-compatible client — work with your [Crownpeak DXM](https://www.crownpeak.com/products/digital-experience-management) CMS through natural language. Browse the asset tree, read and edit fields, create and publish files, run compilations, manage users, and more.
 
-The server exposes **53 tools and 54 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
+The server exposes **57 tools and 59 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
 
 ---
 
@@ -178,6 +178,9 @@ A few representative examples of what an MCP client can do once connected:
 - *"Route /Home/Pricing to the Approval state."*
 - *"Compile the templates folder under project 'Acme Site' and report any errors."*
 - *"Upload `~/Downloads/logo.png` as a new asset in folder 4321."*
+- *"Show me the version history of /Home/About — who changed it and when."*
+- *"Compare the August version of asset 12345 against its current content and tell me what changed."*
+- *"Roll /Home/About back to how it looked before yesterday's edit."*
 
 The full tool and prompt rosters (with names, arguments, and one-line descriptions) live in [CLAUDE.md](./CLAUDE.md).
 
@@ -191,7 +194,8 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 - **No TLS in process.** If you need HTTPS, put the HTTP server behind a reverse proxy (nginx, Caddy, etc.) that terminates TLS.
 - **Credential profiles are stored unencrypted** at `~/.dxm-mcp/profiles.json` with `0600` permissions. The filesystem is the security boundary; this matches how `.env` is handled.
 - **Browser-captured sessions are never persisted.** `login_browser` keeps the captured cookies and API key on the running `Dxm` instance only; restart the server (or call `logout`) to drop them.
-- **Read-only servers cannot mutate the CMS.** Use them for AI agents you don't fully trust, or for exploratory sessions.
+- **Read-only servers cannot mutate the CMS.** Use them for AI agents you don't fully trust, or for exploratory sessions. `revert_to_version` is a write tool and so is absent from both read-only variants.
+- **Reverting a version is additive, not destructive.** `revert_to_version` appends a new version whose content is the older one's, so the pre-revert content remains in the asset's history and can itself be reverted to. It still changes live content, so its prompt companion requires an explicit confirmation first.
 
 ---
 
