@@ -27,27 +27,25 @@ function versionRow(versionId, overrides = {}) {
     };
 }
 
-// Stubs Util.makeCall, recording every call, and dispatching on the endpoint path.
-function makeVersionCms({ versionPages = [], content = [], contentResponse, revertResponse } = {}) {
+// Stubs the helper's version methods (AssetProperties.allVersions / versionContent /
+// revertToVersion), recording every call. Paging, sentinel-row stripping and the
+// NewVersionId/newVersionId normalisation are the helper's job and are tested there, so these
+// stubs return already-walked, already-cleaned responses.
+function makeVersionCms({ versions = [], versionsResponse, content = [], contentResponse, revertResponse } = {}) {
     const calls = [];
     const cms = makeFakeCms({
-        Util: {
-            makeCall: async (cmsArg, path, body) => {
-                calls.push({ path, body, cmsArg });
-                if (path === "/AssetProperties/Versions/") {
-                    const page = versionPages[body.currentPage - 1];
-                    if (page === undefined) return { assetVersions: [], resultCode: "conWS_Success" };
-                    return Array.isArray(page)
-                        ? { assetVersions: page, totalCount: page.length, resultCode: "conWS_Success" }
-                        : page;
-                }
-                if (path === "/AssetProperties/Versions/Content") {
-                    return contentResponse ?? { content, resultCode: "conWS_Success" };
-                }
-                if (path === "/Asset/RevertToVersion") {
-                    return revertResponse ?? { newVersionId: 999999, resultCode: "conWS_Success" };
-                }
-                throw new Error(`unexpected path ${path}`);
+        AssetProperties: {
+            allVersions: async (...args) => {
+                calls.push({ method: "allVersions", args });
+                return versionsResponse ?? { assetVersions: versions, resultCode: "conWS_Success" };
+            },
+            versionContent: async (...args) => {
+                calls.push({ method: "versionContent", args });
+                return contentResponse ?? { content, resultCode: "conWS_Success" };
+            },
+            revertToVersion: async (...args) => {
+                calls.push({ method: "revertToVersion", args });
+                return revertResponse ?? { newVersionId: 999999, resultCode: "conWS_Success" };
             }
         }
     });
@@ -55,17 +53,13 @@ function makeVersionCms({ versionPages = [], content = [], contentResponse, reve
 }
 
 describe("listVersions", () => {
-    test("requests 1-based pages and maps the wire shape", async () => {
-        const { cms, calls } = makeVersionCms({ versionPages: [[versionRow(536379)]] });
+    test("delegates to AssetProperties.allVersions and maps the wire shape", async () => {
+        const { cms, calls } = makeVersionCms({ versions: [versionRow(536379)] });
         const dxm = makeFakeDxm(cms);
         const result = await listVersions(dxm, 355355);
 
-        assert.equal(calls.length, 1);
-        assert.equal(calls[0].path, "/AssetProperties/Versions/");
-        // currentPage must start at 1 — page 0 returns an empty list with a success code.
-        assert.deepEqual(calls[0].body, { assetId: 355355, currentPage: 1, pageSize: 50 });
-        // makeCall takes the api instance as its first argument.
-        assert.equal(calls[0].cmsArg, cms);
+        // One call: the helper walks every page itself.
+        assert.deepEqual(calls, [{ method: "allVersions", args: [355355] }]);
 
         assert.deepEqual(result, [{
             versionId: 536379,
@@ -83,75 +77,33 @@ describe("listVersions", () => {
     });
 
     test("calls _ensureLoggedIn before the request", async () => {
-        const { cms } = makeVersionCms({ versionPages: [[versionRow(1)]] });
+        const { cms } = makeVersionCms({ versions: [versionRow(1)] });
         const dxm = makeFakeDxm(cms);
         await listVersions(dxm, 1);
         assert.equal(dxm.ensureLoginCalls, 1);
     });
 
-    test("drops the -1 sentinel row the endpoint pads the last page with", async () => {
+    test("maps every row the helper returns", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [[versionRow(529825), versionRow(-1)]]
+            versions: [versionRow(536379), versionRow(529829), versionRow(529825)]
         });
         const result = await listVersions(makeFakeDxm(cms), 355355);
-        assert.deepEqual(result.map(v => v.versionId), [529825]);
-    });
-
-    test("pages until a short page is returned", async () => {
-        const full = Array.from({ length: 50 }, (_, i) => versionRow(1000 + i));
-        const { cms, calls } = makeVersionCms({
-            versionPages: [full, [versionRow(2000), versionRow(2001)]]
-        });
-        const result = await listVersions(makeFakeDxm(cms), 7);
-        assert.equal(result.length, 52);
-        assert.deepEqual(calls.map(c => c.body.currentPage), [1, 2]);
-    });
-
-    test("stops when a full page is followed by an empty one", async () => {
-        const full = Array.from({ length: 50 }, (_, i) => versionRow(i + 1));
-        const { cms, calls } = makeVersionCms({ versionPages: [full, []] });
-        const result = await listVersions(makeFakeDxm(cms), 7);
-        assert.equal(result.length, 50);
-        assert.deepEqual(calls.map(c => c.body.currentPage), [1, 2]);
-    });
-
-    test("treats a page padded with sentinel rows as the last page", async () => {
-        // The endpoint only pads the *final* page with -1 rows, so a page whose real-row count
-        // falls below pageSize after filtering ends the walk — no further request is made.
-        const padded = [...Array.from({ length: 49 }, (_, i) => versionRow(i + 1)), versionRow(-1)];
-        const { cms, calls } = makeVersionCms({ versionPages: [padded, [versionRow(999)]] });
-        const result = await listVersions(makeFakeDxm(cms), 7);
-        assert.equal(result.length, 49);
-        assert.deepEqual(calls.map(c => c.body.currentPage), [1]);
-    });
-
-    test("caps runaway paging rather than looping forever", async () => {
-        // Every page comes back full, so only MAX_VERSION_PAGES stops the loop.
-        const calls = [];
-        const cms = makeFakeCms({
-            Util: {
-                makeCall: async (_cms, _path, body) => {
-                    calls.push(body.currentPage);
-                    return {
-                        assetVersions: Array.from({ length: 50 }, (_, i) => versionRow(body.currentPage * 100 + i)),
-                        resultCode: "conWS_Success"
-                    };
-                }
-            }
-        });
-        const result = await listVersions(makeFakeDxm(cms), 7);
-        assert.equal(calls.length, 100);
-        assert.equal(result.length, 5000);
+        assert.deepEqual(result.map(v => v.versionId), [536379, 529829, 529825]);
     });
 
     test("returns an empty array when the asset has no history", async () => {
-        const { cms } = makeVersionCms({ versionPages: [[]] });
+        const { cms } = makeVersionCms({ versions: [] });
+        assert.deepEqual(await listVersions(makeFakeDxm(cms), 42), []);
+    });
+
+    test("tolerates a response with no assetVersions array at all", async () => {
+        const { cms } = makeVersionCms({ versionsResponse: { resultCode: "conWS_Success" } });
         assert.deepEqual(await listVersions(makeFakeDxm(cms), 42), []);
     });
 
     test("throws with the CMS error message when the call is unsuccessful", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [{ isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "No permission" }]
+            versionsResponse: { isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "No permission" }
         });
         await assert.rejects(
             () => listVersions(makeFakeDxm(cms), 99),
@@ -161,7 +113,7 @@ describe("listVersions", () => {
 
     test("falls back to the result code when errorMessage is empty", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [{ isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "" }]
+            versionsResponse: { isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "" }
         });
         await assert.rejects(
             () => listVersions(makeFakeDxm(cms), 99),
@@ -173,7 +125,7 @@ describe("listVersions", () => {
 describe("getVersion", () => {
     test("returns the version metadata plus fields in listFields shape", async () => {
         const { cms, calls } = makeVersionCms({
-            versionPages: [[versionRow(536379), versionRow(529829)]],
+            versions: [versionRow(536379), versionRow(529829)],
             content: [{ name: "body", value: "<p>Hi</p>" }, { name: "filename", value: "index" }]
         });
         const result = await getVersion(makeFakeDxm(cms), 355355, 529829);
@@ -186,15 +138,18 @@ describe("getVersion", () => {
             { name: "filename", value: "index" }
         ]);
 
-        const contentCall = calls.find(c => c.path === "/AssetProperties/Versions/Content");
-        assert.deepEqual(contentCall.body, { assetId: 355355, versionId: 529829 });
+        // validate=false: the history was already fetched here to resolve the row, so the helper
+        // must not fetch it a second time.
+        const contentCall = calls.find(c => c.method === "versionContent");
+        assert.deepEqual(contentCall.args, [355355, 529829, false]);
+        assert.equal(calls.filter(c => c.method === "allVersions").length, 1);
     });
 
     test("rejects a version ID that is not in the asset's history", async () => {
         // The endpoint would otherwise return the asset's *current* content with a success code,
         // so validating against the real history is what prevents a silently wrong answer.
         const { cms, calls } = makeVersionCms({
-            versionPages: [[versionRow(536379), versionRow(529829)]],
+            versions: [versionRow(536379), versionRow(529829)],
             content: [{ name: "body", value: "current content" }]
         });
         await assert.rejects(
@@ -202,11 +157,11 @@ describe("getVersion", () => {
             /Version 1 not found on asset 355355\. Known version IDs: 536379, 529829/
         );
         // and it must not have asked for content at all
-        assert.equal(calls.some(c => c.path === "/AssetProperties/Versions/Content"), false);
+        assert.equal(calls.some(c => c.method === "versionContent"), false);
     });
 
     test("reports 'none' when the asset has no version history at all", async () => {
-        const { cms } = makeVersionCms({ versionPages: [[]] });
+        const { cms } = makeVersionCms({ versions: [] });
         await assert.rejects(
             () => getVersion(makeFakeDxm(cms), 7, 123),
             /Known version IDs: none/
@@ -215,18 +170,18 @@ describe("getVersion", () => {
 
     test("accepts a numeric string version id", async () => {
         const { cms, calls } = makeVersionCms({
-            versionPages: [[versionRow(536379)]],
+            versions: [versionRow(536379)],
             content: [{ name: "body", value: "x" }]
         });
         const result = await getVersion(makeFakeDxm(cms), 355355, "536379");
         assert.equal(result.versionId, 536379);
-        const contentCall = calls.find(c => c.path === "/AssetProperties/Versions/Content");
-        assert.equal(contentCall.body.versionId, 536379);
+        const contentCall = calls.find(c => c.method === "versionContent");
+        assert.equal(contentCall.args[1], 536379);
     });
 
     test("returns an empty field list when the version has no content", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [[versionRow(536379)]],
+            versions: [versionRow(536379)],
             contentResponse: { resultCode: "conWS_Success" }
         });
         const result = await getVersion(makeFakeDxm(cms), 355355, 536379);
@@ -235,7 +190,7 @@ describe("getVersion", () => {
 
     test("throws when the content call is unsuccessful", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [[versionRow(536379)]],
+            versions: [versionRow(536379)],
             contentResponse: { isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "Boom" }
         });
         await assert.rejects(
@@ -246,16 +201,18 @@ describe("getVersion", () => {
 });
 
 describe("revertToVersion", () => {
-    test("sends assetId, versionId and isConfirmed, and reports the new version", async () => {
+    test("delegates to the helper with the resolved version, and reports the new version", async () => {
         const { cms, calls } = makeVersionCms({
-            versionPages: [[versionRow(536379), versionRow(529825)]],
+            versions: [versionRow(536379), versionRow(529825)],
             revertResponse: { newVersionId: 540000, resultCode: "conWS_Success" }
         });
         const result = await revertToVersion(makeFakeDxm(cms), 355355, 529825);
 
-        const revertCall = calls.find(c => c.path === "/Asset/RevertToVersion");
-        // isConfirmed must be true or the CMS has no mandate to actually perform the revert.
-        assert.deepEqual(revertCall.body, { assetId: 355355, versionId: 529825, isConfirmed: true });
+        const revertCall = calls.find(c => c.method === "revertToVersion");
+        // validate=false because the history was already read here; isConfirmed is left to the
+        // helper's default of true, without which the CMS has no mandate to perform the revert.
+        assert.deepEqual(revertCall.args, [355355, 529825, false]);
+        assert.equal(calls.filter(c => c.method === "allVersions").length, 1);
 
         assert.equal(result.assetId, 355355);
         assert.equal(result.newVersionId, 540000);
@@ -265,7 +222,7 @@ describe("revertToVersion", () => {
     });
 
     test("calls _ensureLoggedIn before doing anything", async () => {
-        const { cms } = makeVersionCms({ versionPages: [[versionRow(1)]] });
+        const { cms } = makeVersionCms({ versions: [versionRow(1)] });
         const dxm = makeFakeDxm(cms);
         await revertToVersion(dxm, 5, 1);
         assert.ok(dxm.ensureLoginCalls >= 1);
@@ -273,46 +230,38 @@ describe("revertToVersion", () => {
 
     test("refuses a version ID absent from the asset's history, without writing", async () => {
         const { cms, calls } = makeVersionCms({
-            versionPages: [[versionRow(536379), versionRow(529825)]]
+            versions: [versionRow(536379), versionRow(529825)]
         });
         await assert.rejects(
             () => revertToVersion(makeFakeDxm(cms), 355355, 42),
             /Version 42 not found on asset 355355\. Known version IDs: 536379, 529825/
         );
         // The critical assertion: no revert was attempted.
-        assert.equal(calls.some(c => c.path === "/Asset/RevertToVersion"), false);
+        assert.equal(calls.some(c => c.method === "revertToVersion"), false);
     });
 
     test("refuses to revert an asset that has no version history", async () => {
-        const { cms, calls } = makeVersionCms({ versionPages: [[]] });
+        const { cms, calls } = makeVersionCms({ versions: [] });
         await assert.rejects(
             () => revertToVersion(makeFakeDxm(cms), 7, 123),
             /Known version IDs: none/
         );
-        assert.equal(calls.some(c => c.path === "/Asset/RevertToVersion"), false);
+        assert.equal(calls.some(c => c.method === "revertToVersion"), false);
     });
 
     test("accepts a numeric string version id", async () => {
-        const { cms, calls } = makeVersionCms({ versionPages: [[versionRow(529825)]] });
+        const { cms, calls } = makeVersionCms({ versions: [versionRow(529825)] });
         const result = await revertToVersion(makeFakeDxm(cms), 355355, "529825");
         assert.equal(result.revertedTo.versionId, 529825);
-        const revertCall = calls.find(c => c.path === "/Asset/RevertToVersion");
-        assert.equal(revertCall.body.versionId, 529825);
-    });
-
-    test("accepts the PascalCase NewVersionId that swagger declares", async () => {
-        // Swagger says NewVersionId; every other response in this family is camelCase on the wire.
-        const { cms } = makeVersionCms({
-            versionPages: [[versionRow(529825)]],
-            revertResponse: { NewVersionId: 540001, resultCode: "conWS_Success" }
-        });
-        const result = await revertToVersion(makeFakeDxm(cms), 355355, 529825);
-        assert.equal(result.newVersionId, 540001);
+        const revertCall = calls.find(c => c.method === "revertToVersion");
+        assert.equal(revertCall.args[1], 529825);
     });
 
     test("reports null rather than undefined when no new version id comes back", async () => {
+        // The helper normalises Swagger's PascalCase NewVersionId onto newVersionId, so a response
+        // with neither means the CMS really reported no id.
         const { cms } = makeVersionCms({
-            versionPages: [[versionRow(529825)]],
+            versions: [versionRow(529825)],
             revertResponse: { resultCode: "conWS_Success" }
         });
         const result = await revertToVersion(makeFakeDxm(cms), 355355, 529825);
@@ -321,7 +270,7 @@ describe("revertToVersion", () => {
 
     test("throws with the CMS error message when the revert is unsuccessful", async () => {
         const { cms } = makeVersionCms({
-            versionPages: [[versionRow(529825)]],
+            versions: [versionRow(529825)],
             revertResponse: { isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "Asset is locked" }
         });
         await assert.rejects(

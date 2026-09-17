@@ -205,7 +205,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (144 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (169 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 
@@ -263,6 +263,12 @@ DNS rebinding protection rejected the request. If you're accessing from a non-lo
 
 **Tool call hangs and eventually times out after 30 seconds.**
 The underlying CMS request didn't return in time. The 30-second cap exists to prevent a known recursive-retry bug in the helper library from running forever. Check the CMS itself or your network connectivity — running with `DXM_MCP_DEBUG=1` will show whether the request ever reached the CMS and what, if anything, came back before the timeout fired.
+
+`revert_to_version` is the exception: the CMS regularly takes more than 30 seconds over it, so that one tool is allowed 180 seconds. Your MCP *client* applies its own timeout on top, which the server can't influence — in Claude Code it is `MCP_TOOL_TIMEOUT` (60 seconds by default), so if a revert is cut off well before 180 seconds, raise that:
+
+```bash
+MCP_TOOL_TIMEOUT=200000 claude   # milliseconds
+```
 
 **`upload_file` fails with "File ... is X MB; the upload cap is 11 MB."**
 Binary uploads are capped at ~11 MB of raw bytes. Split larger files or use a different upload path.

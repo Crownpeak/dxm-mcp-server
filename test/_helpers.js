@@ -2,9 +2,8 @@
 // domain functions take a `dxm` object and reach in via `_cms`, so we hand them a stub.
 
 export function makeFakeCms(overrides = {}) {
-    // `Util` is merged rather than replaced so a test can stub `Util.makeCall` (used by the
-    // version-history functions, which call the helper's generic primitive directly) without
-    // having to restate every enum constant.
+    // `Util` is merged rather than replaced so a test can override one enum (or stub a `Util`
+    // method) without having to restate every other enum constant.
     const { Util: utilOverrides, ...rest } = overrides;
     return {
         Util: {

@@ -32,6 +32,12 @@ export const FILE_MIME_TYPES = {
 
 export const TOOL_TIMEOUT_MS = 30000;
 
+// Opt-in ceiling for the handful of operations the CMS itself is simply slow at — currently only
+// revert_to_version, which regularly runs past 30s on assets with large field sets. It is not a
+// blanket raise: the default stays low so the recursive-429-retry runaway toolHandler guards
+// against is still caught quickly on every other tool.
+export const SLOW_TOOL_TIMEOUT_MS = 180000;
+
 // Sanity cap on base64 payloads passed to upload_file / attach_file (bytes of base64 string itself).
 // 10 MB of raw bytes is ~13.4 MB of base64; cap at 15 MB string length to leave a little headroom.
 export const MAX_BASE64_BYTES = 15 * 1024 * 1024;
@@ -40,14 +46,16 @@ export const MAX_BASE64_BYTES = 15 * 1024 * 1024;
 // MAX_BASE64_BYTES so the existing base64 guardrail still holds.
 export const MAX_UPLOAD_BYTES = 11 * 1024 * 1024;
 
-export function toolHandler(fn) {
+// `timeoutMs` overrides the default cap for a single tool — see SLOW_TOOL_TIMEOUT_MS. Raise it
+// only for an operation known to be slow at the CMS end, never to paper over an unexplained hang.
+export function toolHandler(fn, timeoutMs = TOOL_TIMEOUT_MS) {
     return async (args) => {
         let timer;
         try {
             const timeout = new Promise((_, reject) => {
                 timer = setTimeout(
-                    () => reject(new Error(`DXM API call timed out after ${TOOL_TIMEOUT_MS / 1000}s`)),
-                    TOOL_TIMEOUT_MS
+                    () => reject(new Error(`DXM API call timed out after ${timeoutMs / 1000}s`)),
+                    timeoutMs
                 );
             });
             return await Promise.race([fn(args), timeout]);
@@ -58,7 +66,7 @@ export function toolHandler(fn) {
             };
         } finally {
             // Without this, fn() winning the race leaves the timer pending and the Node
-            // event loop stays alive for the full TOOL_TIMEOUT_MS after every tool call —
+            // event loop stays alive for the full timeout after every tool call —
             // invisible in production (server runs forever anyway) but visible in tests as a
             // 30-second hang at the end of test files that invoke wrapped handlers.
             clearTimeout(timer);

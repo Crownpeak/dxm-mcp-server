@@ -10,12 +10,51 @@ import {
     jsonText,
     checkBase64Size,
     readFileForUpload,
+    toolHandler,
     MAX_BASE64_BYTES,
     MAX_UPLOAD_BYTES,
+    TOOL_TIMEOUT_MS,
+    SLOW_TOOL_TIMEOUT_MS,
     IMAGE_MIME_TYPES,
     FILE_MIME_TYPES
 } from "../dxm/tools/util.js";
 import { makeFakeCms } from "./_helpers.js";
+
+describe("toolHandler", () => {
+    test("passes the handler's result through untouched", async () => {
+        const handled = toolHandler(async ({ n }) => ({ content: [{ type: "text", text: String(n * 2) }] }));
+        assert.deepEqual(await handled({ n: 21 }), { content: [{ type: "text", text: "42" }] });
+    });
+
+    test("catches a thrown error into an isError envelope", async () => {
+        const handled = toolHandler(async () => { throw new Error("Asset is locked"); });
+        assert.deepEqual(await handled({}), {
+            content: [{ type: "text", text: "Asset is locked" }],
+            isError: true
+        });
+    });
+
+    test("times out a handler that never settles, reporting the cap in seconds", async () => {
+        // 20ms stands in for the real 30s cap; the override is what makes this testable at all.
+        const handled = toolHandler(() => new Promise(() => {}), 20);
+        const result = await handled({});
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /timed out after 0\.02s/);
+    });
+
+    test("honours a raised timeout for a handler slower than the default", async () => {
+        const slow = () => new Promise(resolve => setTimeout(() => resolve({ content: [] }), 40));
+        // Default cap would kill this at 20ms; the raised one must let it finish.
+        assert.equal((await toolHandler(slow, 20)({})).isError, true);
+        assert.deepEqual(await toolHandler(slow, 2000)({}), { content: [] });
+    });
+
+    test("the slow-tool ceiling is an extension of the default, not a replacement", () => {
+        // revert_to_version opts into SLOW_TOOL_TIMEOUT_MS; everything else keeps the tight cap
+        // that catches the helper's recursive-retry runaway.
+        assert.ok(SLOW_TOOL_TIMEOUT_MS > TOOL_TIMEOUT_MS);
+    });
+});
 
 describe("mapAsset", () => {
     const cms = makeFakeCms();

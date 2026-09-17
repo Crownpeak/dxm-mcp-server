@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { toolHandler, jsonText, parseIdList } from "./util.js";
+import { toolHandler, jsonText, parseIdList, SLOW_TOOL_TIMEOUT_MS } from "./util.js";
 
 export function registerReadTools(server, dxm) {
     server.tool(
@@ -42,7 +42,13 @@ export function registerWriteTools(server, dxm) {
             id: z.number().describe("The ID of the asset to revert"),
             version_id: z.number().describe("The version ID to revert the asset's content to, as returned by list_versions")
         },
-        toolHandler(async ({id, version_id}) => jsonText(await dxm.revertToVersion(id, version_id)))
+        // The CMS takes its time over this one — routinely more than the standard 30s cap — and
+        // it is a write, so a timeout here is worse than on a read: the revert may well have
+        // landed, leaving the caller unsure whether to retry. Hence the extended ceiling.
+        toolHandler(
+            async ({id, version_id}) => jsonText(await dxm.revertToVersion(id, version_id)),
+            SLOW_TOOL_TIMEOUT_MS
+        )
     );
 
     server.tool(
