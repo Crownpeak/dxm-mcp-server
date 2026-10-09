@@ -158,6 +158,10 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 - **Multi-ID write tools** (`set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`) take an `ids` string parameter that is a JSON array (e.g. `"[12345]"`). `parseIdList(input)` in `dxm/tools/util.js` accepts a JSON array, a bare numeric string, or a number, and returns an array.
 
+- **`post_process` on `set_field` / `set_fields`** asks the CMS to run the asset's `post_input.aspx` and `post_save.aspx` over the new content. The helper's `Asset.UpdateRequest` takes these as two independent flags (`runPostInput`, `runPostSave`), but `setFields(dxm, id, fields, postProcess)` drives both from one argument on purpose: `post_input` normalises the submitted values and `post_save` acts on the normalised result, so running the latter alone processes content the CMS considers un-normalised. Anything needing them apart should build its own `UpdateRequest`.
+
+  It defaults to **false**, and that default is load-bearing — a `post_save` handler is arbitrary template code whose side effects reach past the asset being edited (rewriting sibling fields, touching other assets, triggering publishing). The tool descriptions say as much so a model doesn't set the flag speculatively. `delete_fields` / `delete_field` go through the same `UpdateRequest` but deliberately do *not* expose the flag; add it there only if a real case turns up.
+
 - **`AssetCreateRequest`** params for `create_file_*` tools: `type=2` is File, `type=4` is Folder; `modelId=-1` and `templateId=0` / `workflowId=0` are the neutral defaults. `createAsset(...)` produces files, `createFolder(...)` produces folders, and the *_with_model variants use the dedicated helper endpoints.
 
 - **`list_links`** by default filters published URLs to those whose `packageName` (case-insensitive) contains "live" or "prod"; pass `all: true` to bypass the filter.

@@ -4,6 +4,22 @@ function userMessage(text) {
     return { messages: [{ role: "user", content: { type: "text", text } }] };
 }
 
+// Prompt arguments arrive as strings, so the optional post_process flag on the set_field(s)
+// prompts is matched textually rather than coerced — anything other than an explicit "true" is
+// treated as "don't", since running a post_save by accident is the costly direction.
+function wantsPostProcess(value) {
+    return String(value ?? "").trim().toLowerCase() === "true";
+}
+
+function postProcessArg(value) {
+    return wantsPostProcess(value) ? ", post_process=true" : "";
+}
+
+function postProcessNote(value) {
+    if (!wantsPostProcess(value)) return "";
+    return `\n\nThe CMS will run the asset's post_input and post_save code over the new content. That code may change other fields on this asset, or other assets entirely, so report anything that looks unexpected in the confirmation.`;
+}
+
 // Prompts whose target tool is only registered on stdio. The credential-management tools mutate
 // a shared Dxm singleton, which has no coherent meaning across concurrent stateless HTTP requests,
 // so the HTTP composition skips them.
@@ -720,14 +736,15 @@ Call site_summary and present the returned summary.`
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
             name: z.string().describe("The name of the field to set"),
-            value: z.string().describe("The value to write to the field")
+            value: z.string().describe("The value to write to the field"),
+            post_process: z.string().optional().describe('Pass "true" to have the CMS run post_input and post_save over the new content')
         },
-        ({ asset, name, value }) => userMessage(
+        ({ asset, name, value, post_process }) => userMessage(
 `Set the field "${name}" on the DXM asset identified by "${asset}" to the value: ${value}
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call set_field with id=<numericId>, name="${name}", value=<the value above>.
-3. Confirm by calling list_fields and reporting the new value of "${name}".`
+2. Call set_field with id=<numericId>, name="${name}", value=<the value above>${postProcessArg(post_process)}.
+3. Confirm by calling list_fields and reporting the new value of "${name}".${postProcessNote(post_process)}`
         )
     );
 
@@ -736,14 +753,15 @@ Call site_summary and present the returned summary.`
         "Set multiple fields on a DXM asset",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            fields: z.string().describe('Fields to set as a JSON object, e.g. {"title":"Hello","body":"..."}')
+            fields: z.string().describe('Fields to set as a JSON object, e.g. {"title":"Hello","body":"..."}'),
+            post_process: z.string().optional().describe('Pass "true" to have the CMS run post_input and post_save over the new content')
         },
-        ({ asset, fields }) => userMessage(
+        ({ asset, fields, post_process }) => userMessage(
 `Set the following fields on the DXM asset identified by "${asset}": ${fields}
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call set_fields with id=<numericId> and fields=${fields}.
-3. Confirm by calling list_fields and reporting the updated field values.`
+2. Call set_fields with id=<numericId> and fields=${fields}${postProcessArg(post_process)}.
+3. Confirm by calling list_fields and reporting the updated field values.${postProcessNote(post_process)}`
         )
     );
 

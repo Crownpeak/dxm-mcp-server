@@ -182,18 +182,54 @@ function capture() {
 }
 
 describe("setFields", () => {
-    test("issues an UpdateRequest with the fields and an empty deletions list", async () => {
+    // UpdateRequest's last two constructor args are the helper's separate runPostInput /
+    // runPostSave flags, which setFields drives from its single postProcess argument.
+    function updateStub() {
         let req;
         const cms = makeFakeCms({
             Asset: {
-                UpdateRequest: class { constructor(id, fields, deletions) { Object.assign(this, { id, fields, deletions }); } },
+                UpdateRequest: class {
+                    constructor(id, fields, deletions, runPostInput, runPostSave) {
+                        Object.assign(this, { id, fields, deletions, runPostInput, runPostSave });
+                    }
+                },
                 update: async r => { req = r; }
             }
         });
-        await setFields(makeFakeDxm(cms), 11, { title: "X", body: "Y" });
-        assert.equal(req.id, 11);
-        assert.deepEqual(req.fields, { title: "X", body: "Y" });
-        assert.deepEqual(req.deletions, []);
+        return { cms, get req() { return req; } };
+    }
+
+    test("issues an UpdateRequest with the fields and an empty deletions list", async () => {
+        const stub = updateStub();
+        await setFields(makeFakeDxm(stub.cms), 11, { title: "X", body: "Y" });
+        assert.equal(stub.req.id, 11);
+        assert.deepEqual(stub.req.fields, { title: "X", body: "Y" });
+        assert.deepEqual(stub.req.deletions, []);
+    });
+
+    test("leaves post-processing off by default", async () => {
+        // The default matters: post_save handlers are arbitrary template code that can reach
+        // other assets, so an ordinary edit must not trigger them.
+        const stub = updateStub();
+        await setFields(makeFakeDxm(stub.cms), 11, { title: "X" });
+        assert.equal(stub.req.runPostInput, false);
+        assert.equal(stub.req.runPostSave, false);
+    });
+
+    test("sets both post-processing flags from the single postProcess argument", async () => {
+        const stub = updateStub();
+        await setFields(makeFakeDxm(stub.cms), 11, { title: "X" }, true);
+        assert.equal(stub.req.runPostInput, true);
+        assert.equal(stub.req.runPostSave, true);
+    });
+
+    test("coerces a truthy non-boolean postProcess to a real boolean", async () => {
+        // The tool layer passes !!post_process, but the domain function is called directly from
+        // tests and could be from elsewhere; the helper serialises these straight into the body.
+        const stub = updateStub();
+        await setFields(makeFakeDxm(stub.cms), 11, { title: "X" }, "yes");
+        assert.equal(stub.req.runPostInput, true);
+        assert.equal(stub.req.runPostSave, true);
     });
 });
 

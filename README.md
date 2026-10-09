@@ -179,6 +179,7 @@ A few representative examples of what an MCP client can do once connected:
 - *"Compile the templates folder under project 'Acme Site' and report any errors."*
 - *"Upload `~/Downloads/logo.png` as a new asset in folder 4321."*
 - *"Show me the version history of /Home/About — who changed it and when."*
+- *"Set the summary field on /Home/About and run the template's post-save processing."*
 - *"Compare the August version of asset 12345 against its current content and tell me what changed."*
 - *"Roll /Home/About back to how it looked before yesterday's edit."*
 
@@ -205,7 +206,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (169 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (172 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 

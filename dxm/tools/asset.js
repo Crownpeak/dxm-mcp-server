@@ -53,10 +53,11 @@ export function registerWriteTools(server, dxm) {
         "Set field values on a DXM asset",
         {
             id: z.number().describe("The ID of the asset"),
-            fields: z.string().describe('Fields to update as a JSON object, e.g. {"fieldName":"value"}')
+            fields: z.string().describe('Fields to update as a JSON object, e.g. {"fieldName":"value"}'),
+            post_process: z.boolean().optional().describe("When true, ask the CMS to run the asset's post_input and post_save template code over the new content. Leave unset unless the asset relies on that post-processing: post_save handlers can modify other fields or assets.")
         },
-        toolHandler(async ({id, fields}) => {
-            await dxm.setFields(id, JSON.parse(fields));
+        toolHandler(async ({id, fields, post_process}) => {
+            await dxm.setFields(id, JSON.parse(fields), !!post_process);
             return { content: [] };
         })
     );
@@ -68,9 +69,10 @@ export function registerWriteTools(server, dxm) {
             id: z.number().describe("The ID of the asset"),
             name: z.string().describe("The name of the field to set"),
             value: z.string().describe("The value of the field to set"),
+            post_process: z.boolean().optional().describe("When true, ask the CMS to run the asset's post_input and post_save template code over the new content. Leave unset unless the asset relies on that post-processing: post_save handlers can modify other fields or assets.")
         },
-        toolHandler(async ({id, name, value}) => {
-            await dxm.setFields(id, { [name]: value });
+        toolHandler(async ({id, name, value, post_process}) => {
+            await dxm.setFields(id, { [name]: value }, !!post_process);
             return { content: [] };
         })
     );

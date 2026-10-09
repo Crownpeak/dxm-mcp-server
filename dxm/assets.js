@@ -71,9 +71,20 @@ export async function listFields(dxm, id) {
     return result.fields.map(f => ({ name: f.name, value: f.value }));
 }
 
-export async function setFields(dxm, id, fields) {
+// `postProcess` asks the CMS to run the asset's post_input.aspx and post_save.aspx over the new
+// content after storing it. The helper's UpdateRequest exposes these as two separate flags, but
+// they are surfaced here (and in the tools) as one: post_input normalises what was submitted and
+// post_save acts on the normalised result, so running the second without the first would process
+// content the CMS considers un-normalised. A caller that genuinely needs them apart should build
+// the UpdateRequest itself rather than widen this.
+//
+// Defaults to false because post-save handlers are arbitrary template code whose side effects
+// reach past this asset — they can rewrite sibling fields, touch other assets, or kick off
+// publishing. An edit should only trigger that when the caller asked for it.
+export async function setFields(dxm, id, fields, postProcess = false) {
     await dxm._ensureLoggedIn();
-    const request = new dxm._cms.Asset.UpdateRequest(id, fields, []);
+    const run = !!postProcess;
+    const request = new dxm._cms.Asset.UpdateRequest(id, fields, [], run, run);
     await dxm._cms.Asset.update(request);
 }
 
