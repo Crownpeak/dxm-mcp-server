@@ -8,7 +8,8 @@ import {
     moveAsset, renameAsset,
     createAsset, createFolder, createFolderWithModel,
     createProject, createSiteRoot, createLibraryReference,
-    logMessage
+    logMessage,
+    ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES
 } from "../dxm/assets.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
@@ -335,11 +336,24 @@ describe("createAsset / createFolder", () => {
         const cms = makeFakeCms({
             Asset: {
                 CreateRequest: class {
-                    constructor(name, folderId, modelId, type, _flag, templateId, workflowId) {
-                        Object.assign(this, { name, folderId, modelId, type, templateId, workflowId });
+                    constructor(name, folderId, modelId, type, devTemplateLanguage, templateId, workflowId, subtype) {
+                        Object.assign(this, { name, folderId, modelId, type, devTemplateLanguage, templateId, workflowId, subtype });
+                    }
+                    // Same field names the helper's AssetCreateRequest.toJson() produces.
+                    toJson() {
+                        return {
+                            destinationFolderId: this.folderId, devTemplateLanguage: this.devTemplateLanguage,
+                            modelId: this.modelId, newName: this.name, subtype: this.subtype,
+                            templateId: this.templateId, type: this.type, workflowId: this.workflowId
+                        };
                     }
                 },
-                create: async r => { req = r; return { asset: { id: 1, label: r.name, type: r.type, fullPath: "/x", statusName: "S", folder_id: r.folderId } }; }
+                // Asset.create in the helper only ever calls request.toJson(), so assert on that
+                // body - it is what goes over the wire.
+                create: async r => {
+                    req = r.toJson();
+                    return { asset: { id: 1, label: req.newName, type: req.type, fullPath: "/x", statusName: "S", folder_id: req.destinationFolderId } };
+                }
             }
         });
         return {
@@ -353,6 +367,7 @@ describe("createAsset / createFolder", () => {
         await createAsset(makeFakeDxm(r.cms), "doc.txt", 10);
         assert.equal(r.req.type, 2);
         assert.equal(r.req.modelId, -1);
+        assert.equal(r.req.devTemplateLanguage, 0, "an ordinary file has no template language");
         assert.equal(r.req.templateId, 0);
         assert.equal(r.req.workflowId, 0);
     });
@@ -369,6 +384,115 @@ describe("createAsset / createFolder", () => {
         const r = recordingCms();
         await createFolder(makeFakeDxm(r.cms), "subfolder", 10);
         assert.equal(r.req.type, 4);
+    });
+
+    test("both default the subtype to 0 (no special type)", async () => {
+        const f = recordingCms();
+        await createAsset(makeFakeDxm(f.cms), "doc.txt", 10);
+        assert.equal(f.req.subtype, 0);
+        const d = recordingCms();
+        await createFolder(makeFakeDxm(d.cms), "sub", 10);
+        assert.equal(d.req.subtype, 0);
+    });
+
+    test("createAsset passes each file subtype through to the request", async () => {
+        for (const subtype of [0, 1, 17]) {
+            const r = recordingCms();
+            await createAsset(makeFakeDxm(r.cms), "t.aspx", 10, { subtype });
+            assert.equal(r.req.subtype, subtype);
+            assert.equal(r.req.type, 2, "the asset type stays File whatever the subtype");
+        }
+    });
+
+    test("createFolder passes each folder subtype through to the request", async () => {
+        for (const subtype of [0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]) {
+            const r = recordingCms();
+            await createFolder(makeFakeDxm(r.cms), "f", 10, { subtype });
+            assert.equal(r.req.subtype, subtype);
+            assert.equal(r.req.type, 4, "the asset type stays Folder whatever the subtype");
+        }
+    });
+
+    test("createAsset refuses a folder-only subtype, before any request", async () => {
+        const r = recordingCms();
+        const dxm = makeFakeDxm(r.cms);
+        await assert.rejects(
+            () => createAsset(dxm, "x", 10, { subtype: 256 }),
+            { message: "Subtype 256 is not valid for a file. Allowed: 0 (None), 1 (DeveloperTemplate), 17 (TemplateFile)" }
+        );
+        assert.equal(r.req, undefined, "no create call was made");
+        assert.equal(dxm.ensureLoginCalls, 0, "validation happens before login");
+    });
+
+    test("createFolder refuses the two template-file subtypes", async () => {
+        for (const subtype of [1, 17]) {
+            const r = recordingCms();
+            await assert.rejects(
+                () => createFolder(makeFakeDxm(r.cms), "x", 10, { subtype }),
+                new RegExp(`Subtype ${subtype} is not valid for a folder`)
+            );
+            assert.equal(r.req, undefined);
+        }
+    });
+
+    test("a Template File (17) also sets devTemplateLanguage to C# (1)", async () => {
+        const r = recordingCms();
+        await createAsset(makeFakeDxm(r.cms), "output.aspx", 10, { subtype: 17 });
+        assert.equal(r.req.subtype, 17);
+        assert.equal(r.req.devTemplateLanguage, 1);
+        assert.equal("createChildren" in r.req, false, "createChildren is only for template folders");
+    });
+
+    test("a Template folder (512) sets devTemplateLanguage to 1 and createChildren to true", async () => {
+        const r = recordingCms();
+        await createFolder(makeFakeDxm(r.cms), "Article", 10, { subtype: 512 });
+        assert.equal(r.req.type, 4);
+        assert.equal(r.req.subtype, 512);
+        assert.equal(r.req.devTemplateLanguage, 1);
+        assert.equal(r.req.createChildren, true);
+        // and the rest of the helper's body survives the extension untouched
+        assert.equal(r.req.newName, "Article");
+        assert.equal(r.req.destinationFolderId, 10);
+        assert.equal(r.req.modelId, -1);
+    });
+
+    test("no other subtype gets a template language or createChildren", async () => {
+        for (const subtype of [0, 1]) {
+            const r = recordingCms();
+            await createAsset(makeFakeDxm(r.cms), "x", 10, { subtype });
+            assert.equal(r.req.devTemplateLanguage, 0, `file subtype ${subtype}`);
+            assert.equal("createChildren" in r.req, false, `file subtype ${subtype}`);
+        }
+        for (const subtype of [0, 32, 64, 128, 256, 1024, 2048, 4096, 8192]) {
+            const r = recordingCms();
+            await createFolder(makeFakeDxm(r.cms), "x", 10, { subtype });
+            assert.equal(r.req.devTemplateLanguage, 0, `folder subtype ${subtype}`);
+            assert.equal("createChildren" in r.req, false, `folder subtype ${subtype}`);
+        }
+    });
+
+    test("both refuse a value that is not a subtype at all", async () => {
+        await assert.rejects(() => createAsset(makeFakeDxm(recordingCms().cms), "x", 10, { subtype: 3 }), /not valid for a file/);
+        await assert.rejects(() => createFolder(makeFakeDxm(recordingCms().cms), "x", 10, { subtype: 3 }), /not valid for a folder/);
+    });
+});
+
+describe("asset subtype tables", () => {
+    test("ASSET_SUBTYPE mirrors the helper's Util.AssetSubType exactly", async () => {
+        // The tool schemas need the table statically, so it is restated in dxm/assets.js; this
+        // catches drift in either direction if the helper ever adds, renames or renumbers one.
+        const util = (await import("crownpeak-dxm-accessapi-helper/common/util.js")).default;
+        assert.deepEqual({ ...ASSET_SUBTYPE }, util.AssetSubType);
+    });
+
+    test("files and folders split the subtypes with only None in common", () => {
+        const file = Object.values(FILE_SUBTYPES);
+        const folder = Object.values(FOLDER_SUBTYPES);
+        assert.deepEqual(file, [0, 1, 17]);
+        assert.deepEqual(file.filter(v => folder.includes(v)), [0]);
+        // together they cover every subtype the helper knows about
+        assert.deepEqual([...new Set([...file, ...folder])].sort((a, b) => a - b),
+            Object.values(ASSET_SUBTYPE).sort((a, b) => a - b));
     });
 });
 

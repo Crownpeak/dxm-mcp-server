@@ -15,6 +15,14 @@ function postProcessArg(value) {
     return wantsPostProcess(value) ? ", post_process=true" : "";
 }
 
+// Optional asset subtype on the create_file / create_folder prompts. Prompt arguments are strings
+// and a user is as likely to say "template folder" as 256, so the model is told to map it onto the
+// tool's numeric enum (whose description lists every allowed value) rather than this code guessing.
+function subtypeStep(subtype, tool) {
+    if (!subtype || !String(subtype).trim()) return "";
+    return ` Pass subtype=<the numeric subtype for "${subtype}"> - the ${tool} tool's subtype parameter lists the allowed values; if "${subtype}" matches none of them, stop and say so rather than picking the nearest`;
+}
+
 function postProcessNote(value) {
     if (!wantsPostProcess(value)) return "";
     return `\n\nThe CMS will run the asset's post_input and post_save code over the new content. That code may change other fields on this asset, or other assets entirely, so report anything that looks unexpected in the confirmation.`;
@@ -259,14 +267,15 @@ ${folder_id
             name: z.string().describe("The name of the new asset"),
             folder: z.string().describe("A numeric folder ID or full CMS path of the destination folder"),
             template: z.string().describe("A numeric template ID or full CMS path of the template to use"),
-            workflow_id: z.string().describe("The numeric ID of the workflow to use")
+            workflow_id: z.string().describe("The numeric ID of the workflow to use"),
+            subtype: z.string().optional().describe('Optional asset subtype, by number or name - e.g. 0 / "None", 1 / "Developer Template", 17 / "Template File"')
         },
-        ({ name, folder, template, workflow_id }) => userMessage(
+        ({ name, folder, template, workflow_id, subtype }) => userMessage(
 `Create a new DXM file asset named "${name}" in folder "${folder}" using template "${template}" and workflow ID ${workflow_id}.
 
 1. If "${folder}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
 2. If "${template}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
-3. Call create_file with the name, resolved folder ID, resolved template ID, and workflow ID ${workflow_id}.
+3. Call create_file with the name, resolved folder ID, resolved template ID, and workflow ID ${workflow_id}.${subtypeStep(subtype, "create_file")}
 4. Display the metadata of the newly created asset: ID, label, type, fullPath, and status.`
         )
     );
@@ -456,13 +465,14 @@ it returns the same values in a fraction of the size.`
         "Create a new folder in DXM",
         {
             name: z.string().describe("The name of the new folder"),
-            folder: z.string().describe("A numeric folder ID or full CMS path of the parent folder")
+            folder: z.string().describe("A numeric folder ID or full CMS path of the parent folder"),
+            subtype: z.string().optional().describe('Optional asset subtype, by number or name - e.g. 256 / "Template Folder", 128 / "Site Root"')
         },
-        ({ name, folder }) => userMessage(
+        ({ name, folder, subtype }) => userMessage(
 `Create a new folder named "${name}" inside parent folder "${folder}".
 
 1. If "${folder}" is not a numeric ID, call find_asset to resolve it.
-2. Call create_folder with name="${name}" and folder_id=<numericId>.
+2. Call create_folder with name="${name}" and folder_id=<numericId>.${subtypeStep(subtype, "create_folder")}
 3. Display the metadata of the new folder.`
         )
     );

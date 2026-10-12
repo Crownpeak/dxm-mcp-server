@@ -128,18 +128,82 @@ export async function renameAsset(dxm, id, newName) {
     return await dxm._cms.Asset.rename(request);
 }
 
-export async function createAsset(dxm, name, folderId, { modelId = -1, templateId = 0, workflowId = 0 } = {}) {
+// The `subtype` sent to /Asset/Create, which marks a new file or folder as a special CMS asset
+// (a template, a project, a site root, ...). Mirrors the helper's Util.AssetSubType; it is
+// restated here because the tool schemas are built statically at registration time, before any
+// CmsApi instance exists to read the helper's copy from. test/assets.test.js asserts the two stay
+// identical, so drift in either direction fails the suite.
+export const ASSET_SUBTYPE = Object.freeze({
+    None: 0,
+    DeveloperTemplate: 1,
+    TemplateFile: 17,
+    Project: 32,
+    Library: 64,
+    SiteRoot: 128,
+    TemplateFolder: 256,
+    Template: 512,
+    Workflow: 1024,
+    State: 2048,
+    ModelFolder: 4096,
+    ComponentFramework: 8192
+});
+
+// Which subtypes are meaningful for which kind of asset. A file can only be an ordinary file or a
+// template file of some kind; every other subtype describes a container, so it only applies to a
+// folder - and the two template-file subtypes are exactly the ones a folder can't take.
+const pick = (...keys) => Object.freeze(Object.fromEntries(keys.map(k => [k, ASSET_SUBTYPE[k]])));
+export const FILE_SUBTYPES = pick("None", "DeveloperTemplate", "TemplateFile");
+export const FOLDER_SUBTYPES = pick(
+    "None", "Project", "Library", "SiteRoot", "TemplateFolder", "Template",
+    "Workflow", "State", "ModelFolder", "ComponentFramework"
+);
+
+// The tool schemas already restrict `type` to the right subset, but the domain functions are
+// also called directly, and the CMS's behaviour on a mismatched subtype (a folder flagged as a
+// template file, say) is unknown - so refuse it here rather than find out on a live instance.
+function checkSubtype(subtype, allowed, kind) {
+    const values = Object.values(allowed);
+    if (!values.includes(subtype)) {
+        const list = Object.entries(allowed).map(([k, v]) => `${v} (${k})`).join(", ");
+        throw new Error(`Subtype ${subtype} is not valid for a ${kind}. Allowed: ${list}`);
+    }
+}
+
+// Two subtypes create template machinery rather than plain content, and the CMS needs extra
+// fields in the /Asset/Create body for each:
+//   - a Template File (17) is a code file, so it needs devTemplateLanguage set to C#;
+//   - a Template folder (512) also needs devTemplateLanguage, plus createChildren: true, which asks
+//     the CMS to create the template's child assets along with the folder.
+// Every other subtype sends devTemplateLanguage 0 and no createChildren, exactly as before.
+const NEEDS_TEMPLATE_LANGUAGE = new Set([ASSET_SUBTYPE.TemplateFile, ASSET_SUBTYPE.Template]);
+const NEEDS_CHILDREN = new Set([ASSET_SUBTYPE.Template]);
+
+function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateId, workflowId, subtype }) {
+    const devTemplateLanguage = NEEDS_TEMPLATE_LANGUAGE.has(subtype) ? cms.Util.TemplateLanguageType.CSharp : 0;
+    const request = new cms.Asset.CreateRequest(
+        name, folderId, modelId, assetType, devTemplateLanguage, templateId, workflowId, subtype
+    );
+    if (!NEEDS_CHILDREN.has(subtype)) return request;
+    // The helper's AssetCreateRequest has no createChildren field, but Asset.create only ever calls
+    // request.toJson(), so extend the body it produces rather than re-stating it. If the helper
+    // grows the field natively, pass it through the constructor instead.
+    return { toJson: () => ({ ...request.toJson(), createChildren: true }) };
+}
+
+export async function createAsset(dxm, name, folderId, { modelId = -1, templateId = 0, workflowId = 0, subtype = 0 } = {}) {
+    checkSubtype(subtype, FILE_SUBTYPES, "file");
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = new cms.Asset.CreateRequest(name, folderId, modelId, 2, 0, templateId, workflowId);
+    const request = buildCreateRequest(cms, name, folderId, 2, { modelId, templateId, workflowId, subtype });
     const result = await cms.Asset.create(request);
     return mapAsset(cms, result.asset);
 }
 
-export async function createFolder(dxm, name, folderId, { modelId = -1, templateId = 0, workflowId = 0 } = {}) {
+export async function createFolder(dxm, name, folderId, { modelId = -1, templateId = 0, workflowId = 0, subtype = 0 } = {}) {
+    checkSubtype(subtype, FOLDER_SUBTYPES, "folder");
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = new cms.Asset.CreateRequest(name, folderId, modelId, 4, 0, templateId, workflowId);
+    const request = buildCreateRequest(cms, name, folderId, 4, { modelId, templateId, workflowId, subtype });
     const result = await cms.Asset.create(request);
     return mapAsset(cms, result.asset);
 }

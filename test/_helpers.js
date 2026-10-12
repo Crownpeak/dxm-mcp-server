@@ -10,7 +10,9 @@ export function makeFakeCms(overrides = {}) {
             AssetType: { File: 2, Folder: 4, Project: 6, Template: 11 },
             VisibilityType: { Normal: 0, Deleted: 1, Hidden: 2 },
             OrderType: { NotSet: 0 },
-            TemplateLanguageType: { CSharp: 0 },
+            // Matches the helper's real value. It was 0 here, which made "set to C#" impossible to
+            // tell apart from "left at the 0 default" in the create-template tests.
+            TemplateLanguageType: { CSharp: 1 },
             ...utilOverrides
         },
         Asset: {},

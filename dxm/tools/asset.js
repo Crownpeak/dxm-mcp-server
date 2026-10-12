@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { toolHandler, jsonText } from "./util.js";
+import { ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES } from "../assets.js";
+
+// "0 = None, 1 = Developer Template, ..." - generated from the subtype table so the text an
+// LLM reads can never disagree with the enum the schema actually enforces.
+function describeSubtypes(subset) {
+    return Object.entries(subset)
+        .map(([key, value]) => `${value} = ${key.replace(/([a-z])([A-Z])/g, "$1 $2")}`)
+        .join(", ");
+}
 
 export function registerReadTools(server, dxm) {
     server.tool(
@@ -189,10 +198,15 @@ export function registerWriteTools(server, dxm) {
             name: z.string().describe("The name of the new asset"),
             folder_id: z.number().describe("The ID of the destination folder"),
             template_id: z.number().describe("The ID of the template to use"),
-            workflow_id: z.number().describe("The ID of the workflow to use")
+            workflow_id: z.number().describe("The ID of the workflow to use"),
+            subtype: z.enum(FILE_SUBTYPES).optional().describe(
+                `The asset subtype. Omit (or 0) for an ordinary file. ${describeSubtypes(FILE_SUBTYPES)}.`
+            )
         },
-        toolHandler(async ({name, folder_id, template_id, workflow_id}) =>
-            jsonText(await dxm.createAsset(name, folder_id, { templateId: template_id, workflowId: workflow_id }))
+        toolHandler(async ({name, folder_id, template_id, workflow_id, subtype}) =>
+            jsonText(await dxm.createAsset(name, folder_id, {
+                templateId: template_id, workflowId: workflow_id, subtype: subtype ?? ASSET_SUBTYPE.None
+            }))
         )
     );
 
@@ -201,9 +215,14 @@ export function registerWriteTools(server, dxm) {
         "Create a new DXM folder asset",
         {
             name: z.string().describe("The name of the new folder"),
-            folder_id: z.number().describe("The ID of the parent folder")
+            folder_id: z.number().describe("The ID of the parent folder"),
+            subtype: z.enum(FOLDER_SUBTYPES).optional().describe(
+                `The asset subtype. Omit (or 0) for an ordinary folder. ${describeSubtypes(FOLDER_SUBTYPES)}.`
+            )
         },
-        toolHandler(async ({name, folder_id}) => jsonText(await dxm.createFolder(name, folder_id)))
+        toolHandler(async ({name, folder_id, subtype}) =>
+            jsonText(await dxm.createFolder(name, folder_id, { subtype: subtype ?? ASSET_SUBTYPE.None }))
+        )
     );
 
     server.tool(
