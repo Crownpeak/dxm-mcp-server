@@ -366,8 +366,10 @@ describe("createAsset / createFolder", () => {
         const r = recordingCms();
         await createAsset(makeFakeDxm(r.cms), "doc.txt", 10);
         assert.equal(r.req.type, 2);
-        assert.equal(r.req.modelId, -1);
-        assert.equal(r.req.devTemplateLanguage, 0, "an ordinary file has no template language");
+        assert.equal(r.req.modelId, 0);
+        assert.equal(r.req.devTemplateLanguage, -1, "an ordinary file has no template language");
+        assert.equal(r.req.runNew, true);
+        assert.equal(r.req.createChildren, false);
         assert.equal(r.req.templateId, 0);
         assert.equal(r.req.workflowId, 0);
     });
@@ -378,6 +380,27 @@ describe("createAsset / createFolder", () => {
         assert.equal(r.req.modelId, 7);
         assert.equal(r.req.templateId, 8);
         assert.equal(r.req.workflowId, 9);
+    });
+
+    test("create_file sends exactly the body of a known-good /Asset/Create call", async () => {
+        // Captured from a direct API call that succeeded where the helper's defaults (modelId -1,
+        // devTemplateLanguage 0, no runNew/createChildren) made create_file fail. Pinned whole so a
+        // later "tidy-up" of any one field can't silently reintroduce the failure.
+        const r = recordingCms();
+        await createAsset(makeFakeDxm(r.cms), "Test", 384101, { templateId: 384111, workflowId: 0 });
+        assert.deepEqual(r.req, {
+            newName: "Test", destinationFolderId: 384101, modelId: 0, type: 2, subtype: 0,
+            devTemplateLanguage: -1, templateId: 384111, workflowId: 0, runNew: true, createChildren: false
+        });
+    });
+
+    test("createFolder keeps its original body - folders were not reported broken", async () => {
+        const r = recordingCms();
+        await createFolder(makeFakeDxm(r.cms), "sub", 10);
+        assert.equal(r.req.modelId, -1);
+        assert.equal(r.req.devTemplateLanguage, 0);
+        assert.equal("runNew" in r.req, false);
+        assert.equal("createChildren" in r.req, false);
     });
 
     test("createFolder uses type=4 (Folder)", async () => {
@@ -440,7 +463,7 @@ describe("createAsset / createFolder", () => {
         await createAsset(makeFakeDxm(r.cms), "output.aspx", 10, { subtype: 17 });
         assert.equal(r.req.subtype, 17);
         assert.equal(r.req.devTemplateLanguage, 1);
-        assert.equal("createChildren" in r.req, false, "createChildren is only for template folders");
+        assert.equal(r.req.createChildren, false, "createChildren is only true for template folders");
     });
 
     test("a Template folder (512) sets devTemplateLanguage to 1 and createChildren to true", async () => {
@@ -460,8 +483,8 @@ describe("createAsset / createFolder", () => {
         for (const subtype of [0, 1]) {
             const r = recordingCms();
             await createAsset(makeFakeDxm(r.cms), "x", 10, { subtype });
-            assert.equal(r.req.devTemplateLanguage, 0, `file subtype ${subtype}`);
-            assert.equal("createChildren" in r.req, false, `file subtype ${subtype}`);
+            assert.equal(r.req.devTemplateLanguage, -1, `file subtype ${subtype}`);
+            assert.equal(r.req.createChildren, false, `file subtype ${subtype}`);
         }
         for (const subtype of [0, 32, 64, 128, 256, 1024, 2048, 4096, 8192]) {
             const r = recordingCms();

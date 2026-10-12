@@ -174,27 +174,43 @@ function checkSubtype(subtype, allowed, kind) {
 //   - a Template File (17) is a code file, so it needs devTemplateLanguage set to C#;
 //   - a Template folder (512) also needs devTemplateLanguage, plus createChildren: true, which asks
 //     the CMS to create the template's child assets along with the folder.
-// Every other subtype sends devTemplateLanguage 0 and no createChildren, exactly as before.
 const NEEDS_TEMPLATE_LANGUAGE = new Set([ASSET_SUBTYPE.TemplateFile, ASSET_SUBTYPE.Template]);
 const NEEDS_CHILDREN = new Set([ASSET_SUBTYPE.Template]);
 
-function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateId, workflowId, subtype }) {
-    const devTemplateLanguage = NEEDS_TEMPLATE_LANGUAGE.has(subtype) ? cms.Util.TemplateLanguageType.CSharp : 0;
+// File creation sends the body of a known-good /Asset/Create call (one that succeeded where the
+// helper's defaults failed): modelId 0 rather than -1, devTemplateLanguage -1 when the file is not
+// a template (0 is not a TemplateLanguageType value - the helper defines only CSharp = 1), and the
+// runNew / createChildren booleans the helper's AssetCreateRequest omits entirely. Swagger confirms
+// all four fields exist but documents no defaults, so which difference mattered is unknown -
+// change any of these only with a live create to check against.
+const FILE_DEFAULT_MODEL_ID = 0;
+const FILE_NO_TEMPLATE_LANGUAGE = -1;
+const FILE_EXTRA_FIELDS = Object.freeze({ runNew: true, createChildren: false });
+
+// Folders were not reported broken, so they keep their original body: modelId -1,
+// devTemplateLanguage 0, and no runNew / createChildren unless the subtype calls for them.
+const FOLDER_NO_TEMPLATE_LANGUAGE = 0;
+
+function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateId, workflowId, subtype }, { noLanguage, extraFields = {} }) {
+    const devTemplateLanguage = NEEDS_TEMPLATE_LANGUAGE.has(subtype) ? cms.Util.TemplateLanguageType.CSharp : noLanguage;
     const request = new cms.Asset.CreateRequest(
         name, folderId, modelId, assetType, devTemplateLanguage, templateId, workflowId, subtype
     );
-    if (!NEEDS_CHILDREN.has(subtype)) return request;
-    // The helper's AssetCreateRequest has no createChildren field, but Asset.create only ever calls
-    // request.toJson(), so extend the body it produces rather than re-stating it. If the helper
-    // grows the field natively, pass it through the constructor instead.
-    return { toJson: () => ({ ...request.toJson(), createChildren: true }) };
+    const extra = { ...extraFields, ...(NEEDS_CHILDREN.has(subtype) ? { createChildren: true } : {}) };
+    if (Object.keys(extra).length === 0) return request;
+    // The helper's AssetCreateRequest has no runNew / createChildren fields, but Asset.create only
+    // ever calls request.toJson(), so extend the body it produces rather than re-stating it. If the
+    // helper grows these natively, pass them through the constructor instead.
+    return { toJson: () => ({ ...request.toJson(), ...extra }) };
 }
 
-export async function createAsset(dxm, name, folderId, { modelId = -1, templateId = 0, workflowId = 0, subtype = 0 } = {}) {
+export async function createAsset(dxm, name, folderId, { modelId = FILE_DEFAULT_MODEL_ID, templateId = 0, workflowId = 0, subtype = 0 } = {}) {
     checkSubtype(subtype, FILE_SUBTYPES, "file");
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = buildCreateRequest(cms, name, folderId, 2, { modelId, templateId, workflowId, subtype });
+    const request = buildCreateRequest(cms, name, folderId, 2, { modelId, templateId, workflowId, subtype }, {
+        noLanguage: FILE_NO_TEMPLATE_LANGUAGE, extraFields: FILE_EXTRA_FIELDS
+    });
     const result = await cms.Asset.create(request);
     return mapAsset(cms, result.asset);
 }
@@ -203,7 +219,9 @@ export async function createFolder(dxm, name, folderId, { modelId = -1, template
     checkSubtype(subtype, FOLDER_SUBTYPES, "folder");
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = buildCreateRequest(cms, name, folderId, 4, { modelId, templateId, workflowId, subtype });
+    const request = buildCreateRequest(cms, name, folderId, 4, { modelId, templateId, workflowId, subtype }, {
+        noLanguage: FOLDER_NO_TEMPLATE_LANGUAGE
+    });
     const result = await cms.Asset.create(request);
     return mapAsset(cms, result.asset);
 }
