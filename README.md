@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant — Claude Desktop, Claude Code, or any MCP-compatible client — work with your [Crownpeak DXM](https://www.crownpeak.com/products/digital-experience-management) CMS through natural language. Browse the asset tree, read and edit fields, create and publish files, run compilations, manage users, and more.
 
-The server exposes **57 tools and 59 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
+The server exposes **58 tools and 60 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
 
 ---
 
@@ -179,6 +179,7 @@ A few representative examples of what an MCP client can do once connected:
 - *"Compile the templates folder under project 'Acme Site' and report any errors."*
 - *"Upload `~/Downloads/logo.png` as a new asset in folder 4321."*
 - *"Show me the version history of /Home/About — who changed it and when."*
+- *"What does the authoring form for /Home/About look like — which tabs and fields does it have?"*
 - *"Set the summary field on /Home/About and run the template's post-save processing."*
 - *"Compare the August version of asset 12345 against its current content and tell me what changed."*
 - *"Roll /Home/About back to how it looked before yesterday's edit."*
@@ -206,7 +207,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (172 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (178 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 

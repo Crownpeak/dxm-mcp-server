@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { downloadAsset, uploadAsset, attachAsset, viewOutput } from "../dxm/binary.js";
+import { downloadAsset, uploadAsset, attachAsset, viewOutput, viewInput } from "../dxm/binary.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
 describe("downloadAsset", () => {
@@ -140,5 +140,93 @@ describe("attachAsset", () => {
         assert.equal(req.original, "logo.png");
         assert.equal(attachCalled, false);
         assert.deepEqual(result, { ok: true });
+    });
+});
+
+describe("viewInput", () => {
+    // /Asset/Input/Render has no helper wrapper, so viewInput goes through Util.makeCall.
+    function makeRenderCms(response) {
+        const calls = [];
+        const cms = makeFakeCms({
+            Util: {
+                makeCall: async (cmsArg, path, body) => {
+                    calls.push({ cmsArg, path, body });
+                    return response;
+                }
+            }
+        });
+        return { cms, calls };
+    }
+
+    const fullResponse = {
+        ui: { type: "Root", controls: [{ type: "TabContainer" }] },
+        originalFields: { html_title: "Home", body: "<p>Hi</p>" },
+        wysiwygConfigs: "wysiwyg_config^&^0^&^{}",
+        showSaveEditButton: true,
+        resultCode: "conWS_Success",
+        errorMessage: "",
+        internalCode: 0,
+        responseValues: null,
+        cookie: ["ASP.NET_SessionId=secret; Path=/; HttpOnly", "AWSALB=secret2; Path=/"],
+        isSuccessful: true
+    };
+
+    test("posts assetId with isNew false and returns the render payload", async () => {
+        const { cms, calls } = makeRenderCms(fullResponse);
+        const result = await viewInput(makeFakeDxm(cms), 355355);
+
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].path, "/Asset/Input/Render");
+        assert.equal(calls[0].cmsArg, cms, "makeCall takes the api instance first");
+        // isNew false means "the form for this existing asset", not a blank creation form.
+        assert.deepEqual(calls[0].body, { assetId: 355355, isNew: false });
+
+        assert.equal(result.assetId, 355355);
+        assert.deepEqual(result.ui, fullResponse.ui);
+        assert.deepEqual(result.originalFields, fullResponse.originalFields);
+        assert.equal(result.wysiwygConfigs, fullResponse.wysiwygConfigs);
+        assert.equal(result.showSaveEditButton, true);
+    });
+
+    test("never returns the session cookies the envelope carries", async () => {
+        // The raw response includes live session cookies. This result goes into an LLM context,
+        // so the allow-list in viewInput is a security boundary, not tidying.
+        const { cms } = makeRenderCms(fullResponse);
+        const result = await viewInput(makeFakeDxm(cms), 1);
+        assert.deepEqual(Object.keys(result).sort(), [
+            "assetId", "originalFields", "showSaveEditButton", "ui", "wysiwygConfigs"
+        ]);
+        assert.equal(JSON.stringify(result).includes("secret"), false);
+    });
+
+    test("calls _ensureLoggedIn before the request", async () => {
+        const { cms } = makeRenderCms(fullResponse);
+        const dxm = makeFakeDxm(cms);
+        await viewInput(dxm, 1);
+        assert.equal(dxm.ensureLoginCalls, 1);
+    });
+
+    test("defaults each part of the payload when the response omits it", async () => {
+        const { cms } = makeRenderCms({ resultCode: "conWS_Success" });
+        const result = await viewInput(makeFakeDxm(cms), 7);
+        assert.equal(result.ui, null);
+        assert.deepEqual(result.originalFields, {});
+        assert.equal(result.wysiwygConfigs, "");
+        assert.equal(result.showSaveEditButton, null);
+    });
+
+    test("throws with the CMS error message when the render fails", async () => {
+        const { cms } = makeRenderCms({
+            isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "Asset not found"
+        });
+        await assert.rejects(
+            () => viewInput(makeFakeDxm(cms), 404),
+            /Failed to render the input form for asset 404: Asset not found/
+        );
+    });
+
+    test("falls back to the result code when errorMessage is empty", async () => {
+        const { cms } = makeRenderCms({ isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "" });
+        await assert.rejects(() => viewInput(makeFakeDxm(cms), 404), /conWS_Failure/);
     });
 });

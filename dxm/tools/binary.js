@@ -37,6 +37,13 @@ export function registerReadTools(server, dxm) {
             content: [{ type: "text", text: await dxm.viewOutput(id) }]
         }))
     );
+
+    server.tool(
+        "view_input",
+        "Get the input-form definition for a DXM asset: the control tree the CMS editor draws (tabs, panels, text boxes, dropdowns, WYSIWYG fields and so on), the current value of every field, and the WYSIWYG editor configuration. This is the authoring form, not the rendered page - use view_output for that. The payload is large (hundreds of KB on a content-rich asset); prefer list_fields when you only need field values.",
+        { id: z.number().describe("The ID of the asset whose input form should be described") },
+        toolHandler(async ({id}) => jsonText(await dxm.viewInput(id)))
+    );
 }
 
 export function registerWriteTools(server, dxm) {

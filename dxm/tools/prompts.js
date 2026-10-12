@@ -435,6 +435,23 @@ ${folder_id
     );
 
     server.prompt(
+        "view_input",
+        "Describe the authoring input form of a DXM asset",
+        { asset: z.string().describe("A numeric asset ID or a full CMS path") },
+        ({ asset }) => userMessage(
+`Describe the input form an author sees for the DXM asset identified by "${asset}".
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+2. Call view_input with the numeric ID.
+3. Summarise the form: its tabs, the controls on each one (type, label, field name), and which
+   fields currently hold values. Do not reproduce the raw control tree - it is very large.
+
+If the user only wants the field values rather than the form structure, call list_fields instead;
+it returns the same values in a fraction of the size.`
+        )
+    );
+
+    server.prompt(
         "create_folder",
         "Create a new folder in DXM",
         {

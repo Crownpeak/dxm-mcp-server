@@ -106,7 +106,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      util.js        mapAsset helper (no dxm reference; takes cms as arg)
      assets.js      findAsset, getPath, listFolder/Fields, set/deleteFields, setCode,
                     create*, branch/delete/undelete, move/rename, logMessage
-     binary.js      downloadAsset, uploadAsset, attachAsset, viewOutput
+     binary.js      downloadAsset, uploadAsset, attachAsset, viewOutput, viewInput
      publish.js     getPublishLinks, publishAssets, republishAssets
      workflow.js    listWorkflows, getWorkflow, routeAsset, executeWorkflowCommand
      build.js       compileLibrary, compileProject, compileTemplates
@@ -129,7 +129,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      util.js        toolHandler, TOOL_TIMEOUT_MS/SLOW_TOOL_TIMEOUT_MS, MIME tables, parseIdList, checkBase64Size, readFileForUpload
      auth.js        login, logout, whoami, list_profiles, delete_profile (all read-side so both stdio servers expose them; HTTP exposes only whoami)
      asset.js       find/list/get/set, all create_*, move/rename, delete/undelete, branch, log_message
-     binary.js      download_image, download_file, view_output, upload_file, attach_file
+     binary.js      download_image, download_file, view_output, view_input, upload_file, attach_file
      publish.js     list_links, publish_file, republish_file
      workflow.js    list_workflows, get_workflow, route_file, execute_workflow_command
      build.js       compile_library, compile_project, compile_templates
@@ -172,6 +172,13 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 - **`view_output`** returns the rendered HTML of an asset as a single text block. Useful as a quick preview without going through publish.
 
+- **`view_input`** (`viewInput` in `dxm/binary.js`) returns the authoring form definition for an asset: the CMS editor's control tree, every field's current value, and the WYSIWYG config. It is the read-side counterpart to `view_output` — output is the page a visitor sees, input is the form an author sees — which is why it lives in `binary.js` next to `viewOutput` despite having nothing to do with binaries. Two things to preserve:
+  - **The response is allow-listed, not spread-and-deleted.** `/Asset/Input/Render`'s envelope carries a `cookie` array of **live session cookies**, and this result goes straight into an LLM context. `viewInput` names the five fields it returns (`assetId`, `ui`, `originalFields`, `wysiwygConfigs`, `showSaveEditButton`); a deny-list would leak whatever a future API version adds. Same reasoning as the `redactJson` rule under "Debugging".
+  - **It is big** — about 250 KB (~60k tokens) for a content-rich page, nearly all of it `ui`. The tool description and the `view_input` prompt both steer callers to `list_fields` when they only want values. If it ever needs trimming, do it with an opt-in argument rather than by changing the default, which has to stay faithful enough to actually render a form.
+
+  The helper has no wrapper for `/Asset/Input/Render`, so this calls `cms.Util.makeCall(cms, path, body)` — the helper's generic public primitive. If a native `Asset.inputRender()` is ever published, switch to it the way the version family did. `isNew` is hardcoded `false` ("the form for this existing asset", not a blank creation form) and is not exposed; a create-form variant would be a different tool with a different signature.
+
+
 - **`create_user` gotcha**: the helper's `UserCreateRequest.toJson()` sets `generateOneTimeUsePassword` to *true* when a password was provided — that is inverted vs. the JSDoc. The wrapper in `dxm/users.js` builds the request body manually with the corrected semantics (`generateOneTimeUsePassword = !hasPassword`).
 
 - **`AssetProperties.setWorkflow`** URL has a typo (`SetWOrkflow` capital O) — but the server accepts it. We pass through the helper, which already encodes the typo.
@@ -200,10 +207,10 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ## Tool roster
 
-57 tools and 59 prompts. Read tools (24) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 19); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
+58 tools and 60 prompts. Read tools (25) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 20); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
 
-**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
+**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `view_input`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
 
 **Write tools**: `revert_to_version`, `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
 
-**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
+**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `view_input`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
