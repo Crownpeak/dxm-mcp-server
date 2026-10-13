@@ -7,12 +7,12 @@ import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 describe("publishingErrors", () => {
     test("delegates to Report.publishingErrors", async () => {
         const response = { assetList: [
-            { id: 1, label: "A", type: 2, fullPath: "/A", statusName: "Live", folder_id: 9, error_msg: "Error 1" },
-            { id: 2, label: "B", type: 4, fullPath: "/B", statusName: "Live", folder_id: 9, error_msg: "Error 2" }
+            { id: 1, label: "A", type: 2, fullPath: "/A", statusName: "Live", folder_id: 9, branchId: 1, error_msg: "Error 1" },
+            { id: 2, label: "B", type: 4, fullPath: "/B", statusName: "Live", folder_id: 9, branchId: -2, error_msg: "Error 2" }
         ] };
         const expected = [
-            { id: 1, label: "A", type: "File", fullPath: "/A", status: "Live", folder_id: 9, error_msg: "Error 1" },
-            { id: 2, label: "B", type: "Folder", fullPath: "/B", status: "Live", folder_id: 9, error_msg: "Error 2" }
+            { id: 1, label: "A", type: "File", fullPath: "/A", status: "Live", folder_id: 9, branchId: 1, error_msg: "Error 1" },
+            { id: 2, label: "B", type: "Folder", fullPath: "/B", status: "Live", folder_id: 9, branchId: -2, error_msg: "Error 2" }
         ];
         const cms = makeFakeCms({
             Report: { publishingErrors: async () => response }

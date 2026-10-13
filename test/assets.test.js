@@ -19,12 +19,12 @@ describe("findAsset", () => {
             Asset: {
                 read: async id => {
                     assert.equal(id, 42, "should pass through numeric id");
-                    return { asset: { id: 42, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3, error_msg: "" } };
+                    return { asset: { id: 42, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3, branchId: 40, error_msg: "" } };
                 }
             }
         });
         const result = await findAsset(makeFakeDxm(cms), "42");
-        assert.deepEqual(result, { id: 42, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3, error_msg: "" });
+        assert.deepEqual(result, { id: 42, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3, branchId: 40, error_msg: "" });
     });
 
     test("resolves a path via Asset.exists then Asset.read", async () => {

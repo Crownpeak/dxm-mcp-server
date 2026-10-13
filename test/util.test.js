@@ -60,10 +60,19 @@ describe("mapAsset", () => {
     const cms = makeFakeCms();
 
     test("decodes numeric asset type to its name", () => {
-        const raw = { id: 7, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3, error_msg: "" };
+        const raw = { id: 7, label: "Home", type: 2, fullPath: "/Site/Home", statusName: "Live", folder_id: 3, branchId: 5, error_msg: "" };
         assert.deepEqual(mapAsset(cms, raw), {
-            id: 7, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3, error_msg: ""
+            id: 7, label: "Home", type: "File", fullPath: "/Site/Home", status: "Live", folder_id: 3, branchId: 5, error_msg: ""
         });
+    });
+
+    test("passes branchId through unchanged for a master, a branch, and an unbranched asset", () => {
+        // Values as observed on a live instance: a master's branchId is its own id, a branch's is
+        // its master's id, and -2 marks an asset in no branch family.
+        const map = (id, branchId) => mapAsset(cms, { id, type: 2, branchId }).branchId;
+        assert.equal(map(276802, 276802), 276802, "master");
+        assert.equal(map(355355, 276802), 276802, "branch points at its master");
+        assert.equal(map(276804, -2), -2, "no branch family");
     });
 
     test("passes the raw type through when unknown", () => {

@@ -148,7 +148,7 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ### Key patterns
 
-- **`mapAsset(cms, a)`** in `dxm/util.js` is the canonical asset shape returned to clients: `{ id, label, type, fullPath, status, folder_id, error_msg }`. The numeric `type` is decoded to its name via `Util.AssetType`. `Dxm._mapAsset(a)` is a thin shim that calls it with `this._cms`. Use this for any new method that returns an asset.
+- **`mapAsset(cms, a)`** in `dxm/util.js` is the canonical asset shape returned to clients: `{ id, label, type, fullPath, status, folder_id, branchId, error_msg }`. `branchId` is the id of the asset's branch-family master (a master's is its own id; a branch's points at its master) and `-2` for an asset in no branch family — passed through raw, and spelled camelCase because every source endpoint (`Asset.read`, `Asset.paged`, the publishing-errors report) spells it that way, unlike the snake_case `folder_id` beside it. The numeric `type` is decoded to its name via `Util.AssetType`. `Dxm._mapAsset(a)` is a thin shim that calls it with `this._cms`. Use this for any new method that returns an asset.
 
 - **`toolHandler(fn, timeoutMs = TOOL_TIMEOUT_MS)`** in `dxm/tools/util.js` wraps every tool to (a) race against a 30 s timeout (`TOOL_TIMEOUT_MS`) and (b) catch errors into `{ content: [...], isError: true }`. The timeout exists because the underlying CJS library has a recursive 429 retry whose `attempt` counter resets each call, causing infinite recursion / stack overflow — `Promise.race` is the guardrail. Always wrap new tool handlers with it.
 
