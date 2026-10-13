@@ -20,7 +20,7 @@ export function registerReadTools(server, dxm) {
 export function registerWriteTools(server, dxm) {
     server.tool(
         "route_file",
-        "Route a DXM asset directly to a specific workflow state (lower-level than execute_workflow_command, which clicks a workflow action by ID)",
+        "Route a DXM asset directly to a specific workflow state (lower-level than execute_workflow_command, which clicks a workflow action by ID). Routing into a publishing state starts a publish but returns no session id: call publishing_activity_summary with asset_id to follow it.",
         {
             id: z.number().describe("The ID of the asset to route"),
             state_id: z.string().describe("The numeric ID or name of the workflow state to route the asset to")
@@ -40,7 +40,7 @@ export function registerWriteTools(server, dxm) {
 
     server.tool(
         "execute_workflow_command",
-        "Execute a workflow command on an asset (the equivalent of clicking an Approve/Reject-style action button by its command ID)",
+        "Execute a workflow command on an asset (the equivalent of clicking an Approve/Reject-style action button by its command ID). A command whose step publishes starts a publish but returns no session id: call publishing_activity_summary with asset_id to follow it.",
         {
             asset_id: z.number().describe("The ID of the asset"),
             command_id: z.number().describe("The ID of the workflow command to execute"),

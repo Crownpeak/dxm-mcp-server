@@ -1,6 +1,30 @@
 import { z } from "zod";
 import { toolHandler, jsonText, parseIdList } from "./util.js";
 
+// `/Asset/Publish` answers with one `publishingSessionId`; `/Asset/PublishRefresh` with a list.
+// Swagger declares the latter PascalCase while the wire is camelCase elsewhere, so accept both.
+export function publishingSessionIds(response) {
+    if (!response) return [];
+    const list = response.publishingSessionIds ?? response.PublishingSessionIds;
+    const single = response.publishingSessionId ?? response.PublishingSessionId;
+    const ids = Array.isArray(list) && list.length ? list : (single ? [single] : []);
+    return ids.filter(id => typeof id === "number" && id > 0);
+}
+
+// The helper does not throw when the CMS refuses a publish: it hands back
+// `{ resultCode: "conWS_HasFailures", isSuccessful: false, publishingSessionId: -1, errorMessage }`
+// (observed live for "User is not allowed to publish this asset"). With no session started that is
+// a failure and must surface as one; with a session started some assets may still have been
+// refused, so the CMS's message travels alongside the ids instead of being dropped.
+export function publishResult(response) {
+    const ids = publishingSessionIds(response);
+    const failed = response?.isSuccessful === false;
+    if (ids.length === 0) {
+        throw new Error(failed && response.errorMessage ? response.errorMessage : "The CMS did not start a publishing session.");
+    }
+    return failed ? { publishingSessionIds: ids, errors: response.errorMessage ?? null } : { publishingSessionIds: ids };
+}
+
 export function registerReadTools(server, dxm) {
     server.tool(
         "list_links",
@@ -19,26 +43,37 @@ export function registerReadTools(server, dxm) {
             return { content: [{ type: "text", text: liveLinks.map(link => link.path).join("\r\n") }] };
         })
     );
+
+    server.tool(
+        "publishing_activity_summary",
+        "Check the progress of publishing started by the authenticated user (via publish_file, republish_file, or a route_file / execute_workflow_command into a publishing step). Each session reports done/isSuccessful/errors plus processed vs total counts; endDate is null until done. Pass session_id (as returned by publish_file / republish_file) to check one session, or asset_id to see the sessions for one asset — use asset_id after routing, which returns no session id. Omit both to list recent sessions. Publishing continues after those tools return and can take a minute or more, so poll this rather than assuming a publish has finished.",
+        {
+            session_id: z.number().optional().describe("A publishing session ID to narrow the result to"),
+            asset_id: z.number().optional().describe("An asset ID; narrows to the sessions started for that asset")
+        },
+        toolHandler(async ({session_id, asset_id}) =>
+            jsonText(await dxm.publishingActivitySummary({ sessionId: session_id, assetId: asset_id })))
+    );
 }
 
 export function registerWriteTools(server, dxm) {
     server.tool(
         "publish_file",
-        "Publish one or more DXM assets that are not on a workflow",
+        "Publish one or more DXM assets that are not on a workflow. Returns the publishingSessionIds started; publishing continues after this returns, so pass one to publishing_activity_summary to see when it finishes.",
         {
             ids: z.string().describe('Asset IDs to publish, as a JSON array (e.g. "[12345]") or a single numeric ID'),
             skip_dependencies: z.boolean().optional().describe("When true, do not also publish dependent assets")
         },
         toolHandler(async ({ids, skip_dependencies}) => {
             const idList = parseIdList(ids);
-            await dxm.publishAssets(idList, !!skip_dependencies);
-            return { content: [] };
+            const response = await dxm.publishAssets(idList, !!skip_dependencies);
+            return jsonText(publishResult(response));
         })
     );
 
     server.tool(
         "republish_file",
-        "Republish one or more DXM assets to a specific publishing server",
+        "Republish one or more DXM assets to a specific publishing server. Returns the publishingSessionIds started; pass one to publishing_activity_summary to see when it finishes.",
         {
             ids: z.string().describe('Asset IDs to republish, as a JSON array (e.g. "[12345]") or a single numeric ID'),
             publishing_server_id: z.number().describe("The ID of the publishing server"),
@@ -46,8 +81,8 @@ export function registerWriteTools(server, dxm) {
         },
         toolHandler(async ({ids, publishing_server_id, skip_dependencies}) => {
             const idList = parseIdList(ids);
-            await dxm.republishAssets(idList, publishing_server_id, !!skip_dependencies);
-            return { content: [] };
+            const response = await dxm.republishAssets(idList, publishing_server_id, !!skip_dependencies);
+            return jsonText(publishResult(response));
         })
     );
 }

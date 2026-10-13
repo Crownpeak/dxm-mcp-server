@@ -238,7 +238,8 @@ ${folder_id
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
 2. Call route_file with the numeric asset ID and state ID ${state_id}.
-3. Report the result of the routing operation.`
+3. Report the result of the routing operation.
+4. Call publishing_activity_summary with asset_id=<numericId>. If a session for this asset is not done, poll until it reports done=true, then report whether the publish succeeded and how many errors it had. If no new session appears, the state does not publish; say so.`
         )
     );
 
@@ -393,8 +394,25 @@ ${folder_id
 `Publish the DXM asset identified by "${asset}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call publish_file with ids="[<numericId>]"${skip_dependencies === "true" ? " and skip_dependencies=true" : ""}.
-3. Confirm publication by calling list_links on the asset and reporting the published URLs.`
+2. Call publish_file with ids="[<numericId>]"${skip_dependencies === "true" ? " and skip_dependencies=true" : ""}. It returns the publishingSessionIds it started.
+3. Call publishing_activity_summary with session_id=<the first returned id> until the session reports done=true, then report whether it succeeded and how many errors it had.
+4. Confirm publication by calling list_links on the asset and reporting the published URLs.`
+        )
+    );
+
+    server.prompt(
+        "publishing_activity_summary",
+        "Check on DXM publishing you started and whether it has finished",
+        {
+            session_id: z.string().optional().describe("A publishing session ID; omit to summarise recent sessions")
+        },
+        ({ session_id }) => userMessage(session_id
+            ? `Check on DXM publishing session ${session_id}.
+
+Call publishing_activity_summary with session_id=${session_id}. Report its status, whether it is done, whether it succeeded, the error count, and processed vs total progress. If found=false, say the session is no longer in the CMS's recent activity.`
+            : `Summarise my recent DXM publishing activity.
+
+Call publishing_activity_summary with no arguments. Report whether anything is still publishing, then list each session with its id, status, original asset, start/end time, and error count.`
         )
     );
 
@@ -426,7 +444,8 @@ ${folder_id
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
 2. Call execute_workflow_command with asset_id=<numericId> and command_id=${command_id}.
-3. Report the result of the transition.`
+3. Report the result of the transition.
+4. If the command publishes, call publishing_activity_summary with asset_id=<numericId> and poll until the new session reports done=true, then report whether it succeeded and how many errors it had.`
         )
     );
 

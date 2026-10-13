@@ -107,7 +107,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      assets.js      findAsset, getPath, listFolder/Fields, set/deleteFields, setCode,
                     create*, branch/delete/undelete, move/rename, logMessage
      binary.js      downloadAsset, uploadAsset, attachAsset, viewOutput, viewInput
-     publish.js     getPublishLinks, publishAssets, republishAssets
+     publish.js     getPublishLinks, publishAssets, republishAssets, publishingActivitySummary
      workflow.js    listWorkflows, getWorkflow, routeAsset, executeWorkflowCommand
      build.js       compileLibrary, compileProject, compileTemplates
      properties.js  listAttachments, readSiteRoot, listVersions, getVersion,
@@ -130,7 +130,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      auth.js        login, logout, whoami, list_profiles, delete_profile (all read-side so both stdio servers expose them; HTTP exposes only whoami)
      asset.js       find/list/get/set, all create_*, move/rename, delete/undelete, branch, log_message
      binary.js      download_image, download_file, view_output, view_input, upload_file, attach_file
-     publish.js     list_links, publish_file, republish_file
+     publish.js     list_links, publishing_activity_summary, publish_file, republish_file
      workflow.js    list_workflows, get_workflow, route_file, execute_workflow_command
      build.js       compile_library, compile_project, compile_templates
      properties.js  list_attachments, read_site_root, list_versions, get_version,
@@ -173,6 +173,16 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 - **`list_links`** by default filters published URLs to those whose `packageName` (case-insensitive) contains "live" or "prod"; pass `all: true` to bypass the filter.
 
+- **Tracking publishes.** Publishing is asynchronous: `/Asset/Publish` queues a session and returns at once. `publish_file` / `republish_file` return `{ publishingSessionIds }` (read by `publishingSessionIds` in `dxm/tools/publish.js`, which accepts the single `publishingSessionId` of `/Asset/Publish` or the list of `/Asset/PublishRefresh`, in either casing). They used to return empty content, which also hid failures. **The helper does not throw when the CMS refuses a publish**: it returns `isSuccessful: false`, `resultCode: "conWS_HasFailures"`, `publishingSessionId: -1` and an `errorMessage`, observed live as "User is not allowed to publish this asset" for an asset on a workflow. `publishResult` therefore throws the CMS message when no session started. When a session did start it returns the ids plus `errors`, because a multi-asset publish can be partly refused. The read tool `publishing_activity_summary` (`publishingActivitySummary(dxm, { sessionId, assetId })` in `dxm/publish.js`) posts `{}` to `/Publish/ActivitySummary` through `cms.Util.makeCall`, because the helper has no wrapper for it.
+  - **Only `activity.mySessions` is surfaced.** That covers everything the tools started, because every tool acts as the authenticated user, and it includes workflow-triggered publishes from `route_file`. Other users' and system sessions are reduced to counts.
+  - **Rows are allow-listed** (`mapSession`), for the same reason as `view_input`: the envelope also carries `cookie`, long-running job XML payloads, and user names.
+  - **`done` is derived** as `!isActive && !isInitializing`.
+  - **`endDate` is `null` until done.** Live, it read `0001-01-01T00:00:00Z` while initializing and then an intermediate stage's timestamp mid-run.
+  - **`isPublishing` is derived** as `activeCount > 0`. The CMS's own `mySessions.isPublishing` stayed `false` for the first ~40s of a session already "In Progress".
+  - **Routing returns no session id.** `/Asset/Route` answers with a bare success envelope. Routing 276861 to a publishing state was verified live: a session appeared within 0.3s, its `originalAssetId` was the routed asset, and it took ~84s to finish. That is why the tool also takes `asset_id`, and why the `route_file` / `execute_workflow_command` descriptions and prompts point at it.
+  - **`session_id` filters client-side.** The CMS returns only the user's recent sessions (9 on the probed instance), so an older id comes back as `found: false` rather than an error.
+  - **The wire is camelCase** (`displayStatus`, `processedPriority`, ...), not Swagger's PascalCase. This was verified live; the publish responses' casing was not, since that needs a real publish.
+
 - **Binary downloads**: MCP only has an `image` content type for binary. `download_image` returns `{ type: "image", data, mimeType }`; `download_file` returns a JSON envelope inside a `text` block for other binaries. MIME types are looked up from `IMAGE_MIME_TYPES` / `FILE_MIME_TYPES` tables based on the file extension from the asset's label.
 
 - **Binary uploads** (`upload_file`, `attach_file`) take a filesystem `path`; the server reads the file directly via `readFileForUpload` (in `dxm/tools/util.js`), keeping the bytes out of the LLM context. Capped at `MAX_UPLOAD_BYTES` (~11 MB raw, chosen so the encoded payload stays under the existing 15 MB base64 guardrail). `name` / `original_filename` default to the file's basename. `attach_file` uses the chunked `attachv2` endpoint for size resilience.
@@ -214,10 +224,10 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ## Tool roster
 
-58 tools and 60 prompts. Read tools (25) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 20); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
+59 tools and 61 prompts. Read tools (26) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 21); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
 
-**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `view_input`, `list_links`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
+**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `view_input`, `list_links`, `publishing_activity_summary`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
 
 **Write tools**: `revert_to_version`, `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
 
-**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `view_input`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
+**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `publishing_activity_summary`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `view_input`, `list_workflows`, `get_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
