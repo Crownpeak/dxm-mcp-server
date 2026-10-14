@@ -19,8 +19,12 @@ function mixin(target, mod) {
 }
 
 // Matches header/field names that must never appear in a debug log — e.g. the "password" field
-// in the /Auth/Authenticate request body, or a "cookie" field echoed back in a response.
-const SECRET_FIELD_RE = /password|api[_-]?key|secret|token|cookie/i;
+// in the /Auth/Authenticate request body, or a "cookie" field echoed back in a response. The last
+// four cover the notification socket's setup calls (/Sockets/PusherInfo and /Sockets/PusherAuth,
+// made by the helper when set_code waits for its compile): `auth` is a signed subscription for
+// the user's private channel, and `channel_name` / `ourUniqueId` / `appKey` are what that
+// channel is built from. `auth` is anchored so it doesn't swallow unrelated fields like "author".
+const SECRET_FIELD_RE = /password|api[_-]?key|secret|token|cookie|^auth$|channel_name|uniqueid|appkey/i;
 
 // Redacts sensitive fields from a JSON-ish string before it hits the log. Non-JSON strings (or
 // anything that fails to parse) pass through unredacted — this only ever sees our own request

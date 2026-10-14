@@ -9,8 +9,9 @@ import {
     createAsset, createFolder, createFolderWithModel,
     createProject, createSiteRoot, createLibraryReference,
     logMessage,
-    ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES
+    ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES, COMPILE_WAIT_MS, isTemplateCode
 } from "../dxm/assets.js";
+import { TOOL_TIMEOUT_MS } from "../dxm/tools/util.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
 describe("findAsset", () => {
@@ -250,18 +251,119 @@ describe("deleteFields", () => {
 });
 
 describe("setCode", () => {
-    test("issues an UpdatePluginBodyRequest with the code and isCommitted=false", async () => {
-        let req;
+    // Asset records as Asset.read returned them live on CPUK. The default is a Library class.
+    const LIBRARY_CLASS = { id: 384196, label: "ZZVersionTest.cs", subtype: 17, extension: "cs" };
+    const TEMPLATE_FILE = { id: 384200, label: "output.aspx", subtype: 17, extension: "aspx" };
+    const DEVELOPER_TEMPLATE = { id: 384201, label: "ZZ Scratch", subtype: 1, extension: "" };
+
+    function codeCms(response, asset = LIBRARY_CLASS) {
+        const calls = [];
+        const reads = [];
         const cms = makeFakeCms({
             Asset: {
                 UpdatePluginBodyRequest: class { constructor(id, code, isCommitted) { Object.assign(this, { id, code, isCommitted }); } },
-                updatePluginBody: async r => { req = r; }
+                updatePluginBody: async (...args) => { calls.push(args); return response; },
+                read: async id => {
+                    reads.push(id);
+                    if (asset instanceof Error) throw asset;
+                    return { asset };
+                }
             }
         });
+        return { cms, calls, reads };
+    }
+
+    test("issues an UpdatePluginBodyRequest with the code and isCommitted=false", async () => {
+        const { cms, calls } = codeCms({ isSuccessful: true });
         await setCode(makeFakeDxm(cms), 22, "<html>hi</html>");
+        const [req] = calls[0];
         assert.equal(req.id, 22);
         assert.equal(req.code, "<html>hi</html>");
         assert.equal(req.isCommitted, false);
+    });
+
+    test("always waits for template code: .aspx template files and Developer Templates", async () => {
+        for (const asset of [TEMPLATE_FILE, DEVELOPER_TEMPLATE]) {
+            const { cms, calls } = codeCms({ isSuccessful: true, compilation: { succeeded: true } }, asset);
+            assert.equal((await setCode(makeFakeDxm(cms), asset.id, "x")).status, "succeeded", asset.label);
+            assert.equal(calls[0][1], true, asset.label);
+            // Even an explicit "don't wait" is overridden for templates.
+            const off = codeCms({ isSuccessful: true, compilation: { succeeded: true } }, asset);
+            await setCode(makeFakeDxm(off.cms), asset.id, "x", { waitForCompilation: false });
+            assert.equal(off.calls[0][1], true, asset.label + " with wait off");
+        }
+    });
+
+    test("tells template files from Library classes by extension, since both are subtype 17", () => {
+        assert.equal(isTemplateCode(TEMPLATE_FILE), true);
+        assert.equal(isTemplateCode({ ...TEMPLATE_FILE, extension: "ASPX" }), true);
+        assert.equal(isTemplateCode(DEVELOPER_TEMPLATE), true);
+        assert.equal(isTemplateCode(LIBRARY_CLASS), false);
+        assert.equal(isTemplateCode({ subtype: 17, extension: "css" }), false);
+        assert.equal(isTemplateCode({ subtype: 0, extension: "aspx" }), false);
+        assert.equal(isTemplateCode(undefined), false);
+    });
+
+    test("skips the asset read when the caller already asked to wait", async () => {
+        const { cms, reads } = codeCms({ isSuccessful: true, compilation: { succeeded: true } });
+        await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true });
+        assert.deepEqual(reads, []);
+    });
+
+    test("still saves, without waiting, when the asset read fails", async () => {
+        const { cms, calls } = codeCms({ isSuccessful: true }, new Error("read failed"));
+        assert.equal(await setCode(makeFakeDxm(cms), 1, "x"), null);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0][1], false);
+    });
+
+    test("does not wait by default for a Library class, whose compiles can outlast the wait", async () => {
+        const { cms, calls } = codeCms({ isSuccessful: true });
+        assert.equal(await setCode(makeFakeDxm(cms), 1, "x"), null);
+        assert.equal(calls[0][1], false);
+    });
+
+    test("waits on request, within the tool's time budget", async () => {
+        const { cms, calls } = codeCms({ isSuccessful: true });
+        await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true });
+        assert.deepEqual(calls[0].slice(1), [true, COMPILE_WAIT_MS]);
+        assert.ok(COMPILE_WAIT_MS < TOOL_TIMEOUT_MS, "the socket connect and the save need room inside the tool timeout too");
+    });
+
+    test("reports a successful compile", async () => {
+        const { cms } = codeCms({ isSuccessful: true, compilation: { succeeded: true, message: "CompilationSucceeded", rawData: null, serverNumber: "WEB-3", timedOut: false } });
+        assert.deepEqual(await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true }), { status: "succeeded", output: null, reason: null });
+    });
+
+    test("reports a failed compile with the compiler output", async () => {
+        // rawData as a live CPUK compile returned it.
+        const rawData = "Errors compiling Library /Site/Project/Library/ (275154)\r\n error CS0116: A namespace cannot directly contain members such as fields or methods in ZZVersionTest.cs at line: 11, column: 5-5\r\n";
+        const { cms } = codeCms({ isSuccessful: true, compilation: { succeeded: false, message: "CompilationFailed", rawData, serverNumber: "WEB-3", timedOut: false } });
+        assert.deepEqual(await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true }), { status: "failed", output: rawData, reason: null });
+    });
+
+    test("reports a timed-out wait as unknown, not as a failure", async () => {
+        const { cms } = codeCms({ isSuccessful: true, compilation: { succeeded: null, message: null, rawData: null, serverNumber: null, timedOut: true } });
+        assert.deepEqual(await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true }), { status: "unknown", output: null, reason: "No compile result arrived before the wait ended" });
+    });
+
+    test("reports an unavailable channel as unknown with the reason, never as a failure", async () => {
+        // Helper 1.4.0's shape when the socket could not connect, or dropped mid-wait: the save
+        // still happened, succeeded is null, and the reason is in error.
+        const { cms } = codeCms({ isSuccessful: true, compilation: {
+            succeeded: null, message: null, rawData: null, serverNumber: null, timedOut: false,
+            unavailable: true, error: "Notification socket closed: 1006"
+        } });
+        assert.deepEqual(await setCode(makeFakeDxm(cms), 1, "x", { waitForCompilation: true }), {
+            status: "unknown", output: null, reason: "Could not listen for the compile result: Notification socket closed: 1006"
+        });
+    });
+
+    test("throws when the CMS refuses the save instead of reporting success", async () => {
+        const { cms } = codeCms({ isSuccessful: false, resultCode: "conWS_AssetLocked", errorMessage: "Asset is locked" });
+        await assert.rejects(() => setCode(makeFakeDxm(cms), 1, "x"), /Asset is locked/);
+        const bare = codeCms({ isSuccessful: false, resultCode: "conWS_Failure" });
+        await assert.rejects(() => setCode(makeFakeDxm(bare.cms), 1, "x"), /conWS_Failure/);
     });
 });
 

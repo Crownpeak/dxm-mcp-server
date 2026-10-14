@@ -29,7 +29,7 @@ npm run server:readonly   # safe read-only subset
 
 ## Requirements
 
-- **Node.js 18 or newer** (Node 20+ recommended; tested on 24)
+- **Node.js 22 or newer** (tested on 24). `crownpeak-dxm-accessapi-helper` 1.4.0 needs Node 22 for its built-in `WebSocket`, which `set_code` uses to report compile results
 - A Crownpeak DXM account with API access — specifically:
   - CMS hostname (e.g. `cms.crownpeak.net`)
   - Instance name

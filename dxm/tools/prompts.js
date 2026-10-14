@@ -166,9 +166,10 @@ Call list_fields to get all fields for asset ${id}. Present each field name and 
 1. Call get_code to retrieve the current code from asset ${id}.
 2. Apply the change: ${change}
 3. Call set_code to save the updated code back to asset ${id}.
+4. If set_code's compilation.status is "failed", report the compiler errors from compilation.output, fix them, and save again.
 ${folder_id
-    ? `4. Compile folder ${folder_id} using compile_library or compile_project as appropriate. Report any errors.`
-    : `4. No folder ID was provided, so skip compilation. Inform the user that they may need to compile manually.`
+    ? `5. If compilation is null or its status is "unknown", compile folder ${folder_id} using compile_library or compile_project as appropriate. Report any errors.`
+    : `5. If compilation is null or its status is "unknown", tell the user the compile result was not reported and they may need to compile manually.`
 }
 5. Report a summary of what was changed.`
         )
@@ -859,7 +860,7 @@ ${code}
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
 2. Call set_code with id=<numericId> and the code shown above.
-3. Confirm by calling get_code and reporting the new content.`
+3. Report the compile result set_code returns: on "failed", show the compiler errors from compilation.output; on "unknown", give compilation.reason; if compilation is null (not template code), say it was not compiled-checked.`
         )
     );
 

@@ -114,14 +114,15 @@ export function registerWriteTools(server, dxm) {
 
     server.tool(
         "set_code",
-        "Set the code in a DXM template file or asset",
+        "Set the code in a DXM template file or asset. Returns { saved: true, compilation }. Saving makes the CMS compile the code. For template code (.aspx template files and Developer Templates) this always waits (usually ~1s, up to ~20s) for the result: compilation is { status: \"succeeded\" | \"failed\" | \"unknown\", output, reason }, where output holds the compiler errors on failure and reason explains an \"unknown\". For other code (Library .cs classes, .js, .css) it does not wait unless wait_for_compilation=true, and compilation is null; run compile_library to check a Library class. \"unknown\" does not mean failure. Known CMS bug: re-saving broken code identical to broken code saved earlier can wrongly report \"succeeded\"; if a fix you did not make 'succeeds', confirm with compile_templates.",
         {
             id: z.number().describe("The ID of the asset"),
-            code: z.string().describe("The code to be saved on the asset")
+            code: z.string().describe("The code to be saved on the asset"),
+            wait_for_compilation: z.boolean().optional().describe("Template code always waits. For other code (e.g. Library classes, whose compiles can take 20s) it defaults to false; pass true to wait for the compile result")
         },
-        toolHandler(async ({id, code}) => {
-            await dxm.setCode(id, code);
-            return { content: [] };
+        toolHandler(async ({id, code, wait_for_compilation}) => {
+            const compilation = await dxm.setCode(id, code, { waitForCompilation: wait_for_compilation === true });
+            return jsonText({ saved: true, compilation });
         })
     );
 

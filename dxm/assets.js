@@ -94,10 +94,63 @@ export async function deleteFields(dxm, id, fieldNames) {
     await dxm._cms.Asset.update(request);
 }
 
-export async function setCode(dxm, id, code) {
+// How long set_code waits for the compile its save triggers. Live saves of a Library class
+// reported back in about 7s; this leaves room for a slow compile while keeping the socket connect,
+// the save and the wait together inside toolHandler's 30s cap.
+export const COMPILE_WAIT_MS = 20000;
+
+// Template code: a template file (subtype 17) with an .aspx extension, or a Developer Template
+// (subtype 1, a stand-alone output template, which has no extension at all). Library classes are
+// also subtype 17, distinguished only by their .cs extension, so subtype alone can't tell them apart.
+export function isTemplateCode(asset) {
+    if (!asset) return false;
+    if (asset.subtype === ASSET_SUBTYPE.DeveloperTemplate) return true;
+    return asset.subtype === ASSET_SUBTYPE.TemplateFile && String(asset.extension ?? "").toLowerCase() === "aspx";
+}
+
+// Saves the code and waits for the CMS to report the compile that save triggers. The result comes
+// over the CMS's notification socket (helper >= 1.4.0, `updatePluginBody`'s waitForCompilation
+// argument) rather than from the save call, which returns before compiling.
+//
+// Template code always waits: on CPUK its compiles reported back in about 1s, and every verdict was
+// right apart from one CMS bug. Re-saving broken code byte-identical to broken code saved earlier
+// (with a good save in between) can draw a bogus "CompilationSucceeded" about 0.25s after the
+// save, apparently from a content-keyed compile cache. Other code (Library .cs classes, .js, .css)
+// only waits when asked: Library compiles took 7s to 20s+, and files that never compile would sit
+// out the whole wait. Telling the two apart costs one Asset.read (~350ms), skipped when the caller
+// has already asked to wait. If that read fails we save without waiting rather than not saving.
+// Returns { status: "succeeded" | "failed" | "unknown", output, reason }, or null when not waited.
+export async function setCode(dxm, id, code, { waitForCompilation = false, timeoutMs = COMPILE_WAIT_MS } = {}) {
     await dxm._ensureLoggedIn();
+    if (waitForCompilation !== true) {
+        try {
+            waitForCompilation = isTemplateCode((await dxm._cms.Asset.read(id))?.asset);
+        } catch {
+            waitForCompilation = false;
+        }
+    }
     const request = new dxm._cms.Asset.UpdatePluginBodyRequest(id, code, false);
-    await dxm._cms.Asset.updatePluginBody(request);
+    const response = await dxm._cms.Asset.updatePluginBody(request, waitForCompilation, timeoutMs);
+    // The helper does not throw on a refused save. This used to be ignored, so a failed save was
+    // reported to the caller as a success.
+    if (response && response.isSuccessful === false) {
+        throw new Error(response.errorMessage || `Saving the code failed (${response.resultCode})`);
+    }
+    if (!waitForCompilation) return null;
+    return mapCompilation(response?.compilation);
+}
+
+// Only an explicit true/false verdict becomes succeeded/failed. Everything else is "unknown" with
+// the reason: the wait ran out, or (helper `unavailable`) the socket could not be opened or dropped.
+// In both cases the code was saved; we just don't know whether it compiled. Testing `succeeded`
+// for truthiness instead would turn `unavailable`'s `succeeded: null` into a false "failed".
+function mapCompilation(compilation) {
+    if (compilation?.succeeded === true) return { status: "succeeded", output: null, reason: null };
+    if (compilation?.succeeded === false) return { status: "failed", output: compilation.rawData ?? null, reason: null };
+    const reason = compilation?.unavailable
+        ? `Could not listen for the compile result: ${compilation.error ?? "notification channel unavailable"}`
+        : "No compile result arrived before the wait ended";
+    return { status: "unknown", output: null, reason };
 }
 
 export async function deleteAsset(dxm, id) {
