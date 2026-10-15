@@ -1,6 +1,8 @@
+import { responseData } from "./util.js";
+
 export async function listUsers(dxm) {
     await dxm._ensureLoggedIn();
-    return await dxm._cms.User.listUsers();
+    return responseData(await dxm._cms.User.listUsers(), "Could not list users");
 }
 
 export async function createUser(dxm, { username, firstName, lastName, emailAddress, password }) {
@@ -18,5 +20,5 @@ export async function createUser(dxm, { username, firstName, lastName, emailAddr
         },
         generateOneTimeUsePassword: !hasPassword,
     };
-    return await dxm._cms.User.createUser(body);
+    return responseData(await dxm._cms.User.createUser(body), `Could not create user ${username}`);
 }

@@ -111,15 +111,24 @@ describe("uploadAsset", () => {
         assert.equal(result.type, "File");
     });
 
-    test("returns the raw helper response when no asset was attached to it", async () => {
+    test("throws the CMS's message when the upload was refused, instead of returning the response", async () => {
         const cms = makeFakeCms({
             Asset: {
                 UploadRequest: class { constructor(...a) { this.a = a; } },
-                upload: async () => ({ errorMessage: "nope" })
+                upload: async () => ({ resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "nope" })
             }
         });
-        const result = await uploadAsset(makeFakeDxm(cms), "f.bin", 1, "Zm9v");
-        assert.deepEqual(result, { errorMessage: "nope" });
+        await assert.rejects(() => uploadAsset(makeFakeDxm(cms), "f.bin", 1, "Zm9v"), /Upload failed: nope/);
+    });
+
+    test("returns a non-asset success response without its envelope or cookie", async () => {
+        const cms = makeFakeCms({
+            Asset: {
+                UploadRequest: class { constructor(...a) { this.a = a; } },
+                upload: async () => ({ resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, uploadTicket: "t1" })
+            }
+        });
+        assert.deepEqual(await uploadAsset(makeFakeDxm(cms), "f.bin", 1, "Zm9v"), { uploadTicket: "t1" });
     });
 });
 
@@ -131,7 +140,7 @@ describe("attachAsset", () => {
             Asset: {
                 AttachRequest: class { constructor(assetId, bytes, original) { Object.assign(this, { assetId, bytes, original }); } },
                 attach: async () => { attachCalled = true; throw new Error("attach should not be called"); },
-                attachv2: async r => { req = r; return { ok: true }; }
+                attachv2: async r => { req = r; return { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, ok: true }; }
             }
         });
         const result = await attachAsset(makeFakeDxm(cms), 12, "Zm9v", "logo.png");

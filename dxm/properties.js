@@ -8,6 +8,8 @@
 // assets.js (despite its /Asset/ path) both because it shares the version-lookup guard below and
 // because this codebase already groups by concept over endpoint path — see routeAsset, which sits
 // in workflow.js even though it calls Asset.route.
+import { responseData } from "./util.js";
+
 function mapVersion(v) {
     return {
         versionId: v.versionId,
@@ -109,12 +111,12 @@ export async function revertToVersion(dxm, id, versionId) {
 
 export async function listAttachments(dxm, id) {
     await dxm._ensureLoggedIn();
-    return await dxm._cms.AssetProperties.attachments(id);
+    return responseData(await dxm._cms.AssetProperties.attachments(id), `Could not list the attachments of asset ${id}`);
 }
 
 export async function readSiteRoot(dxm, id) {
     await dxm._ensureLoggedIn();
-    return await dxm._cms.AssetProperties.readSiteRoot(id);
+    return responseData(await dxm._cms.AssetProperties.readSiteRoot(id), `Could not read site root ${id}`);
 }
 
 export async function setModel(dxm, ids, modelId) {

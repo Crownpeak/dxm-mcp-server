@@ -9,7 +9,7 @@ import {
     createAsset, createFolder, createFolderWithModel,
     createProject, createSiteRoot, createLibraryReference,
     logMessage,
-    ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES, COMPILE_WAIT_MS, isTemplateCode
+    ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES, COMPILE_WAIT_MS, isTemplateCode, FILE_TEMPLATE_LANGUAGE
 } from "../dxm/assets.js";
 import { TOOL_TIMEOUT_MS } from "../dxm/tools/util.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
@@ -66,12 +66,13 @@ describe("getPath", () => {
         const cms = makeFakeCms({
             Asset: {
                 PathByIdRequest: class { constructor(id, withAncestors) { this.id = id; this.withAncestors = withAncestors; } },
-                pathById: async req => { captured = req; return { path: "/Site/Home", ancestors: [] }; }
+                pathById: async req => { captured = req; return { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, path: "/Site/Home", list: [] }; }
             }
         });
-        await getPath(makeFakeDxm(cms), 7, true);
+        const result = await getPath(makeFakeDxm(cms), 7, true);
         assert.equal(captured.id, 7);
         assert.equal(captured.withAncestors, true);
+        assert.deepEqual(result, { path: "/Site/Home", list: [] }, "data only: no cookie, no envelope");
     });
 
     test("coerces includeAncestors to boolean", async () => {
@@ -496,6 +497,32 @@ describe("createAsset / createFolder", () => {
         });
     });
 
+    test("a DeveloperCS file is subtype 0 with an explicit devTemplateLanguage of 1", async () => {
+        // No subtype implies a language for subtype 0, so without the explicit value this would
+        // send -1 and create an ordinary file instead.
+        const r = recordingCms();
+        await createAsset(makeFakeDxm(r.cms), "Dev", 384101, { templateId: 384111, subtype: 0, devTemplateLanguage: 1 });
+        assert.deepEqual(r.req, {
+            newName: "Dev", destinationFolderId: 384101, modelId: 0, type: 2, subtype: 0,
+            devTemplateLanguage: 1, templateId: 384111, workflowId: 0, runNew: true, createChildren: false
+        });
+    });
+
+    test("an explicit devTemplateLanguage overrides the one the subtype implies", async () => {
+        const r = recordingCms();
+        await createAsset(makeFakeDxm(r.cms), "x", 10, { subtype: ASSET_SUBTYPE.TemplateFile, devTemplateLanguage: -1 });
+        assert.equal(r.req.devTemplateLanguage, -1);
+        const implied = recordingCms();
+        await createAsset(makeFakeDxm(implied.cms), "x", 10, { subtype: ASSET_SUBTYPE.TemplateFile });
+        assert.equal(implied.req.devTemplateLanguage, 1, "omitted, the subtype still decides");
+    });
+
+    test("rejects an unknown devTemplateLanguage before logging in", async () => {
+        const dxm = makeFakeDxm(recordingCms().cms);
+        await assert.rejects(() => createAsset(dxm, "x", 10, { devTemplateLanguage: 0 }), /devTemplateLanguage 0 is not valid for a file/);
+        assert.equal(dxm.ensureLoginCalls, 0);
+    });
+
     test("createFolder keeps its original body - folders were not reported broken", async () => {
         const r = recordingCms();
         await createFolder(makeFakeDxm(r.cms), "sub", 10);
@@ -608,6 +635,13 @@ describe("asset subtype tables", () => {
         // catches drift in either direction if the helper ever adds, renames or renumbers one.
         const util = (await import("crownpeak-dxm-accessapi-helper/common/util.js")).default;
         assert.deepEqual({ ...ASSET_SUBTYPE }, util.AssetSubType);
+    });
+
+    test("FILE_TEMPLATE_LANGUAGE's languages mirror the helper's Util.TemplateLanguageType", async () => {
+        const util = (await import("crownpeak-dxm-accessapi-helper/common/util.js")).default;
+        const { None, ...languages } = FILE_TEMPLATE_LANGUAGE;
+        assert.deepEqual(languages, util.TemplateLanguageType);
+        assert.equal(None, -1);
     });
 
     test("files and folders split the subtypes with only None in common", () => {

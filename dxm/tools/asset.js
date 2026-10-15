@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { toolHandler, jsonText } from "./util.js";
-import { ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES } from "../assets.js";
+import { ASSET_SUBTYPE, FILE_SUBTYPES, FOLDER_SUBTYPES, FILE_TEMPLATE_LANGUAGE } from "../assets.js";
 
 // "0 = None, 1 = Developer Template, ..." - generated from the subtype table so the text an
 // LLM reads can never disagree with the enum the schema actually enforces.
@@ -202,11 +202,15 @@ export function registerWriteTools(server, dxm) {
             workflow_id: z.number().describe("The ID of the workflow to use"),
             subtype: z.enum(FILE_SUBTYPES).optional().describe(
                 `The asset subtype. Omit (or 0) for an ordinary file. ${describeSubtypes(FILE_SUBTYPES)}.`
+            ),
+            dev_template_language: z.enum(FILE_TEMPLATE_LANGUAGE).optional().describe(
+                `Sent as devTemplateLanguage. ${describeSubtypes(FILE_TEMPLATE_LANGUAGE)}. Omit to let the subtype decide (C# for a Template File, otherwise none). A DeveloperCS file needs subtype 0 with dev_template_language 1.`
             )
         },
-        toolHandler(async ({name, folder_id, template_id, workflow_id, subtype}) =>
+        toolHandler(async ({name, folder_id, template_id, workflow_id, subtype, dev_template_language}) =>
             jsonText(await dxm.createAsset(name, folder_id, {
-                templateId: template_id, workflowId: workflow_id, subtype: subtype ?? ASSET_SUBTYPE.None
+                templateId: template_id, workflowId: workflow_id, subtype: subtype ?? ASSET_SUBTYPE.None,
+                devTemplateLanguage: dev_template_language
             }))
         )
     );

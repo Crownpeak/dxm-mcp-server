@@ -270,14 +270,15 @@ ${folder_id
             folder: z.string().describe("A numeric folder ID or full CMS path of the destination folder"),
             template: z.string().describe("A numeric template ID or full CMS path of the template to use"),
             workflow_id: z.string().describe("The numeric ID of the workflow to use"),
-            subtype: z.string().optional().describe('Optional asset subtype, by number or name - e.g. 0 / "None", 1 / "Developer Template", 17 / "Template File"')
+            subtype: z.string().optional().describe('Optional asset subtype, by number or name - e.g. 0 / "None", 1 / "Developer Template", 17 / "Template File"'),
+            dev_template_language: z.string().optional().describe('Optional template language, by number or name - 1 / "C#", or -1 / "None". A DeveloperCS file is subtype 0 with language 1')
         },
-        ({ name, folder, template, workflow_id, subtype }) => userMessage(
+        ({ name, folder, template, workflow_id, subtype, dev_template_language }) => userMessage(
 `Create a new DXM file asset named "${name}" in folder "${folder}" using template "${template}" and workflow ID ${workflow_id}.
 
 1. If "${folder}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
 2. If "${template}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
-3. Call create_file with the name, resolved folder ID, resolved template ID, and workflow ID ${workflow_id}.${subtypeStep(subtype, "create_file")}
+3. Call create_file with the name, resolved folder ID, resolved template ID, and workflow ID ${workflow_id}.${subtypeStep(subtype, "create_file")}${dev_template_language && String(dev_template_language).trim() ? ` Pass dev_template_language=<the numeric value for "${dev_template_language}"> - the create_file tool's dev_template_language parameter lists the allowed values; if it matches none of them, stop and say so` : ""}
 4. Display the metadata of the newly created asset: ID, label, type, fullPath, and status.`
         )
     );
@@ -637,6 +638,25 @@ Call list_workflows. Present each workflow's name and ID, and summarize its stat
 1. If "${workflow}" is not a numeric ID, call find_asset to resolve it.
 2. Call get_workflow with the numeric ID.
 3. Present each state, the commands available from that state, and the transitions they trigger.`
+        )
+    );
+
+    server.prompt(
+        "read_workflow",
+        "Show a workflow's full definition, or which commands an asset can follow from its current state",
+        {
+            workflow: z.string().describe("A numeric workflow ID, or a full CMS path of the workflow asset"),
+            asset: z.string().optional().describe("Optional: an asset (ID or path) whose next possible commands you want")
+        },
+        ({ workflow, asset }) => userMessage(
+`Read the DXM workflow identified by "${workflow}".
+
+1. If "${workflow}" is a numeric ID, call read_workflow with workflow_id=${workflow}. Otherwise call find_asset to resolve the path, then call read_workflow with asset_id=<the resolved ID> (a path names the workflow's asset, not the workflow).
+${asset && String(asset).trim()
+    ? `2. Resolve "${asset}" with find_asset if it is not numeric, and read its status. The step whose status matches is its current state.
+3. List the commands available from that step: each command's name, its commandId (what execute_workflow_command takes), and its destination state. Say whether the destination step publishes (publishState / publishes).`
+    : `2. Present each step: its state, the commands available from it with their commandId and destination state, and any publishing or schedule rules.`
+}`
         )
     );
 

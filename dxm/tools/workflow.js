@@ -4,9 +4,20 @@ import { toolHandler, jsonText } from "./util.js";
 export function registerReadTools(server, dxm) {
     server.tool(
         "list_workflows",
-        "List the System-level workflows defined on this DXM instance, including their states and commands. Project-scoped workflows are not returned here; inspect those via find_asset on the workflow asset.",
+        "List the workflows defined on this DXM instance (System and project workflows alike), including their states and commands. The output is large (hundreds of KB on a big instance); for one workflow use get_workflow or read_workflow.",
         {},
         toolHandler(async () => jsonText(await dxm.listWorkflows()))
+    );
+
+    server.tool(
+        "read_workflow",
+        "Read the full definition of a workflow: every step (state) with the commands available from it, where each command leads (destination: step, status, name, state), and each step's publishing, schedule and action rules. Use it to find which commands an asset can follow from its current state; an asset's status is a step's status. commandId is the id execute_workflow_command takes. Pass workflow_id (e.g. an asset's workflow_id) or asset_id (the workflow's own asset id, as list_workflows gives it).",
+        {
+            workflow_id: z.number().optional().describe("The workflow's id"),
+            asset_id: z.number().optional().describe("The workflow's asset id (not the id of an asset that uses the workflow)")
+        },
+        toolHandler(async ({workflow_id, asset_id}) =>
+            jsonText(await dxm.readWorkflow({ workflowId: workflow_id, assetId: asset_id })))
     );
 
     server.tool(

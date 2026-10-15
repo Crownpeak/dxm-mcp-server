@@ -124,8 +124,15 @@ export function parseIdList(input, paramName = "ids") {
     return parsed.map(Number);
 }
 
+// Every JSON tool result goes through here, so this is the last line of defence against leaking
+// the session: the helper's makeCall attaches the live session cookies (`cookie`) to every response
+// it returns, and seven tools once passed that straight to the model. Domain functions should
+// already return only their data (see responseData in dxm/util.js); this strips any "cookie" /
+// "cookies" / "set-cookie" key at any depth regardless, in case one doesn't.
+const COOKIE_KEY = /^(set-)?cookies?$/i;
+
 export function jsonText(value) {
-    return { content: [{ type: "text", text: JSON.stringify(value) }] };
+    return { content: [{ type: "text", text: JSON.stringify(value, (key, v) => (COOKIE_KEY.test(key) ? undefined : v)) }] };
 }
 
 export function checkBase64Size(b64, paramName = "bytes") {

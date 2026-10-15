@@ -285,12 +285,12 @@ describe("listAttachments", () => {
         let captured;
         const cms = makeFakeCms({
             AssetProperties: {
-                attachments: async id => { captured = id; return [{ name: "thumb.jpg" }]; }
+                attachments: async id => { captured = id; return { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, attachmentFiles: [{ name: "thumb.jpg" }] }; }
             }
         });
         const result = await listAttachments(makeFakeDxm(cms), 3);
         assert.equal(captured, 3);
-        assert.deepEqual(result, [{ name: "thumb.jpg" }]);
+        assert.deepEqual(result, { attachmentFiles: [{ name: "thumb.jpg" }] }, "data only: no cookie, no envelope");
     });
 });
 
@@ -299,12 +299,19 @@ describe("readSiteRoot", () => {
         let captured;
         const cms = makeFakeCms({
             AssetProperties: {
-                readSiteRoot: async id => { captured = id; return { hostname: "example.com" }; }
+                readSiteRoot: async id => { captured = id; return { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, defaultExtension: "html", projectId: 4 }; }
             }
         });
         const result = await readSiteRoot(makeFakeDxm(cms), 10);
         assert.equal(captured, 10);
-        assert.deepEqual(result, { hostname: "example.com" });
+        assert.deepEqual(result, { defaultExtension: "html", projectId: 4 }, "data only: no cookie, no envelope");
+    });
+
+    test("readSiteRoot throws the CMS's message on failure", async () => {
+        const cms = makeFakeCms({
+            AssetProperties: { readSiteRoot: async () => ({ resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, isSuccessful: false, errorMessage: "Not a site root" }) }
+        });
+        await assert.rejects(() => readSiteRoot(makeFakeDxm(cms), 10), /Could not read site root 10: Not a site root/);
     });
 });
 

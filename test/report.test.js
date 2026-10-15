@@ -37,12 +37,11 @@ describe("publishingErrors", () => {
 
 describe("siteSummary", () => {
     test("delegates to Report.siteSummary", async () => {
-        const expected = { totalAssets: 1234 };
         const cms = makeFakeCms({
-            Report: { siteSummary: async () => expected }
+            Report: { siteSummary: async () => ({ resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, reportData: { totalAssets: 1234 } }) }
         });
         const result = await siteSummary(makeFakeDxm(cms));
-        assert.equal(result, expected);
+        assert.deepEqual(result, { reportData: { totalAssets: 1234 } }, "data only: no cookie, no envelope");
     });
 
     test("calls _ensureLoggedIn before the request", async () => {

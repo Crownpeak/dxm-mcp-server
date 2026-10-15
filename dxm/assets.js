@@ -1,4 +1,4 @@
-import { mapAsset } from "./util.js";
+import { mapAsset, responseData } from "./util.js";
 
 export async function findAsset(dxm, query) {
     await dxm._ensureLoggedIn();
@@ -20,7 +20,7 @@ export async function getPath(dxm, id, includeAncestors = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const request = new cms.Asset.PathByIdRequest(id, !!includeAncestors);
-    return await cms.Asset.pathById(request);
+    return responseData(await cms.Asset.pathById(request), `Could not get the path of asset ${id}`);
 }
 
 export async function listFolder(dxm, id, { visibility = "normal", filter = "" } = {}) {
@@ -238,14 +238,23 @@ const NEEDS_CHILDREN = new Set([ASSET_SUBTYPE.Template]);
 // change any of these only with a live create to check against.
 const FILE_DEFAULT_MODEL_ID = 0;
 const FILE_NO_TEMPLATE_LANGUAGE = -1;
+
+// Values create_file accepts for an explicit devTemplateLanguage: the file "no language" value and
+// the helper's one TemplateLanguageType (CSharp, mirrored here for the same reason as ASSET_SUBTYPE:
+// schemas are built before any CmsApi instance exists; a test checks it against the helper).
+// Needed because a DeveloperCS file is created as subtype 0 with devTemplateLanguage 1, which no
+// subtype implies on its own.
+export const FILE_TEMPLATE_LANGUAGE = Object.freeze({ None: FILE_NO_TEMPLATE_LANGUAGE, CSharp: 1 });
 const FILE_EXTRA_FIELDS = Object.freeze({ runNew: true, createChildren: false });
 
 // Folders were not reported broken, so they keep their original body: modelId -1,
 // devTemplateLanguage 0, and no runNew / createChildren unless the subtype calls for them.
 const FOLDER_NO_TEMPLATE_LANGUAGE = 0;
 
-function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateId, workflowId, subtype }, { noLanguage, extraFields = {} }) {
-    const devTemplateLanguage = NEEDS_TEMPLATE_LANGUAGE.has(subtype) ? cms.Util.TemplateLanguageType.CSharp : noLanguage;
+function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateId, workflowId, subtype, devTemplateLanguage: explicitLanguage }, { noLanguage, extraFields = {} }) {
+    // An explicit language wins; otherwise the subtype decides.
+    const devTemplateLanguage = explicitLanguage ??
+        (NEEDS_TEMPLATE_LANGUAGE.has(subtype) ? cms.Util.TemplateLanguageType.CSharp : noLanguage);
     const request = new cms.Asset.CreateRequest(
         name, folderId, modelId, assetType, devTemplateLanguage, templateId, workflowId, subtype
     );
@@ -257,11 +266,15 @@ function buildCreateRequest(cms, name, folderId, assetType, { modelId, templateI
     return { toJson: () => ({ ...request.toJson(), ...extra }) };
 }
 
-export async function createAsset(dxm, name, folderId, { modelId = FILE_DEFAULT_MODEL_ID, templateId = 0, workflowId = 0, subtype = 0 } = {}) {
+export async function createAsset(dxm, name, folderId, { modelId = FILE_DEFAULT_MODEL_ID, templateId = 0, workflowId = 0, subtype = 0, devTemplateLanguage } = {}) {
     checkSubtype(subtype, FILE_SUBTYPES, "file");
+    if (devTemplateLanguage !== undefined && !Object.values(FILE_TEMPLATE_LANGUAGE).includes(devTemplateLanguage)) {
+        const list = Object.entries(FILE_TEMPLATE_LANGUAGE).map(([k, v]) => `${v} (${k})`).join(", ");
+        throw new Error(`devTemplateLanguage ${devTemplateLanguage} is not valid for a file. Allowed: ${list}`);
+    }
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = buildCreateRequest(cms, name, folderId, 2, { modelId, templateId, workflowId, subtype }, {
+    const request = buildCreateRequest(cms, name, folderId, 2, { modelId, templateId, workflowId, subtype, devTemplateLanguage }, {
         noLanguage: FILE_NO_TEMPLATE_LANGUAGE, extraFields: FILE_EXTRA_FIELDS
     });
     const result = await cms.Asset.create(request);

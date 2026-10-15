@@ -1,4 +1,4 @@
-import { mapAsset } from "./util.js";
+import { mapAsset, responseData } from "./util.js";
 
 export async function publishingErrors(dxm) {
     await dxm._ensureLoggedIn();
@@ -7,5 +7,5 @@ export async function publishingErrors(dxm) {
 
 export async function siteSummary(dxm) {
     await dxm._ensureLoggedIn();
-    return await dxm._cms.Report.siteSummary();
+    return responseData(await dxm._cms.Report.siteSummary(), "Could not read the site summary");
 }

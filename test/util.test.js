@@ -4,7 +4,7 @@ import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { mapAsset } from "../dxm/util.js";
+import { mapAsset, responseData } from "../dxm/util.js";
 import {
     parseIdList,
     jsonText,
@@ -115,6 +115,38 @@ describe("jsonText", () => {
     test("wraps a value as a single text content block", () => {
         const result = jsonText({ a: 1 });
         assert.deepEqual(result, { content: [{ type: "text", text: '{"a":1}' }] });
+    });
+
+    test("strips session cookies at any depth, as a last line of defence", () => {
+        // The helper attaches the live session cookies to every response; seven tools once
+        // returned them to the model. Any cookie / cookies / set-cookie key is dropped.
+        const leaky = { cookie: ["AWSALB=s1"], data: { Cookies: ["s2"], list: [{ "set-cookie": "s3", keep: 1 }] } };
+        const text = jsonText(leaky).content[0].text;
+        assert.deepEqual(JSON.parse(text), { data: { list: [{ keep: 1 }] } });
+        assert.ok(!/s1|s2|s3/.test(text));
+    });
+
+    test("keeps keys that merely contain the word, like an asset label", () => {
+        const text = jsonText({ label: "Components_SetProductCookie.cs", cookieConsent: true }).content[0].text;
+        assert.deepEqual(JSON.parse(text), { label: "Components_SetProductCookie.cs", cookieConsent: true });
+    });
+});
+
+describe("responseData", () => {
+    const envelope = { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret"], isSuccessful: true };
+
+    test("returns only the endpoint's data: no cookie, no envelope", () => {
+        assert.deepEqual(responseData({ ...envelope, path: "/x", list: [] }), { path: "/x", list: [] });
+    });
+
+    test("throws the CMS's message, with context, when the call failed", () => {
+        const failed = { ...envelope, isSuccessful: false, resultCode: "conWS_NotFound", errorMessage: "Asset 5 not found." };
+        assert.throws(() => responseData(failed, "Could not read 5"), { message: "Could not read 5: Asset 5 not found." });
+        assert.throws(() => responseData({ ...failed, errorMessage: "" }), { message: "the CMS returned conWS_NotFound" });
+    });
+
+    test("treats a response without isSuccessful as data", () => {
+        assert.deepEqual(responseData({ id: 99 }), { id: 99 });
     });
 });
 

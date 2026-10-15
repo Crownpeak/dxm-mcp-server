@@ -1,4 +1,4 @@
-import { mapAsset } from "./util.js";
+import { mapAsset, responseData } from "./util.js";
 
 const INPUT_RENDER_PATH = "/Asset/Input/Render";
 
@@ -19,14 +19,14 @@ export async function uploadAsset(dxm, name, folderId, bytesBase64, { modelId = 
     const cms = dxm._cms;
     const request = new cms.Asset.UploadRequest(bytesBase64, folderId, modelId, name, workflowId);
     const result = await cms.Asset.upload(request);
-    return result.asset ? mapAsset(cms, result.asset) : result;
+    return result.asset ? mapAsset(cms, result.asset) : responseData(result, "Upload failed");
 }
 
 export async function attachAsset(dxm, assetId, bytesBase64, originalFilename) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const request = new cms.Asset.AttachRequest(assetId, bytesBase64, originalFilename);
-    return await cms.Asset.attachv2(request);
+    return responseData(await cms.Asset.attachv2(request), `Could not attach the file to asset ${assetId}`);
 }
 
 export async function viewOutput(dxm, id) {

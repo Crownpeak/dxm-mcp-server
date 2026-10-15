@@ -6,12 +6,11 @@ import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
 describe("listUsers", () => {
     test("delegates to User.listUsers", async () => {
-        const expected = [{ id: 1, username: "alice" }];
         const cms = makeFakeCms({
-            User: { listUsers: async () => expected }
+            User: { listUsers: async () => ({ resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret; Path=/"], isSuccessful: true, users: [{ id: 1, username: "alice" }] }) }
         });
         const result = await listUsers(makeFakeDxm(cms));
-        assert.equal(result, expected);
+        assert.deepEqual(result, { users: [{ id: 1, username: "alice" }] }, "data only: no cookie, no envelope");
     });
 });
 
