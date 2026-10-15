@@ -1,19 +1,42 @@
 import { mapAsset, responseData } from "./util.js";
 
-export async function findAsset(dxm, query) {
+// The raw asset record for a numeric id or a full CMS path. Shared by find_asset (which trims it
+// with mapAsset) and read_full_asset (which returns it whole).
+async function readRawAsset(dxm, query) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
 
-    const numericId = /^\d+$/.test(String(query).trim()) ? Number(query) : null;
-    if (numericId !== null) {
-        const result = await cms.Asset.read(numericId);
-        return mapAsset(cms, result.asset);
+    let id = /^\d+$/.test(String(query).trim()) ? Number(query) : null;
+    if (id === null) {
+        const exists = await cms.Asset.exists(query);
+        if (!exists.exists) throw new Error(`Asset not found: ${query}`);
+        id = exists.assetId;
     }
+    let result;
+    try {
+        result = await cms.Asset.read(id);
+    } catch (e) {
+        // For an unknown id the helper's Asset.read dereferences the null asset the CMS sends back
+        // and throws "Cannot read properties of null (reading 'is_deleted')". Say what it means.
+        if (e instanceof TypeError && /reading 'is_deleted'/.test(e.message)) throw new Error(`Asset not found: ${query}`);
+        throw e;
+    }
+    // Only the asset: the response envelope carries the session cookie.
+    const { asset } = responseData(result, `Could not read asset ${query}`);
+    if (!asset) throw new Error(`Asset not found: ${query}`);
+    return asset;
+}
 
-    const exists = await cms.Asset.exists(query);
-    if (!exists.exists) throw new Error(`Asset not found: ${query}`);
-    const result = await cms.Asset.read(exists.assetId);
-    return mapAsset(cms, result.asset);
+export async function findAsset(dxm, query) {
+    return mapAsset(dxm._cms, await readRawAsset(dxm, query));
+}
+
+// Everything the CMS holds on the asset record (66 fields on CPUK, ~1.6 KB): workflow_id and
+// workflow_step, template_id / template_label, model, subtype, extension, version ids, dates and
+// who created/modified/published it, checkout state, schedule flags, and so on - for when the
+// trimmed find_asset shape isn't enough. Passed through as the CMS sends it, envelope aside.
+export async function readFullAsset(dxm, query) {
+    return await readRawAsset(dxm, query);
 }
 
 export async function getPath(dxm, id, includeAncestors = false) {

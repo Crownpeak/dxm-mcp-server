@@ -76,10 +76,10 @@ describe("auth tool split", () => {
     test("registerReadToolsHttp still exposes every non-auth read tool", () => {
         const { tools, server } = captureServer();
         registerReadToolsHttp(server, fakeDxm());
-        // Sanity check the full read surface (whoami + 21 others = 22).
+        // Sanity check the full read surface (whoami + 22 others = 23).
         const expected = [
             "whoami",
-            "find_asset", "get_path", "list_folder", "list_fields", "get_code",
+            "find_asset", "read_full_asset", "get_path", "list_folder", "list_fields", "get_code",
             "download_image", "download_file", "view_output", "view_input",
             "list_links", "publishing_activity_summary",
             "list_workflows", "get_workflow", "read_workflow",

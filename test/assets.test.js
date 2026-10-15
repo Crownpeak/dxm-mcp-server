@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    findAsset, getPath, listFolder, listFields,
+    findAsset, readFullAsset, getPath, listFolder, listFields,
     setFields, deleteFields, setCode,
     deleteAsset, undeleteAsset, branchAsset,
     moveAsset, renameAsset,
@@ -57,6 +57,50 @@ describe("findAsset", () => {
         const dxm = makeFakeDxm(cms);
         await findAsset(dxm, "1");
         assert.equal(dxm.ensureLoginCalls, 1);
+    });
+});
+
+describe("readFullAsset", () => {
+    // A trimmed copy of the record Asset.read returned live for 384206 on CPUK.
+    const RAW = {
+        id: 384206, label: "Test", type: 2, fullPath: "/Site/Test", folder_id: 275152, branchId: -2,
+        workflow_id: 11, workflow_step: 1, status: 780, statusName: "Draft", template_id: 1792,
+        template_label: "DeveloperCS", subtype: 1, extension: "", permissionList: "0100", error_msg: null
+    };
+    const ENVELOPE = { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret"], isSuccessful: true };
+
+    test("returns every field of the record, and nothing of the envelope", async () => {
+        const cms = makeFakeCms({ Asset: { read: async () => ({ ...ENVELOPE, asset: RAW }) } });
+        const result = await readFullAsset(makeFakeDxm(cms), "384206");
+        assert.deepEqual(result, RAW);
+        assert.ok(!JSON.stringify(result).includes("secret"));
+    });
+
+    test("resolves a path first, like find_asset", async () => {
+        const reads = [];
+        const cms = makeFakeCms({
+            Asset: {
+                exists: async path => (path === "/Site/Test" ? { exists: true, assetId: 384206 } : { exists: false }),
+                read: async id => { reads.push(id); return { ...ENVELOPE, asset: RAW }; }
+            }
+        });
+        assert.equal((await readFullAsset(makeFakeDxm(cms), "/Site/Test")).workflow_id, 11);
+        assert.deepEqual(reads, [384206]);
+        await assert.rejects(() => readFullAsset(makeFakeDxm(cms), "/Nope"), /Asset not found: \/Nope/);
+    });
+
+    test("turns the helper's null-dereference on an unknown id into 'not found'", async () => {
+        // What the helper's Asset.read throws live for an id with no asset behind it.
+        const cms = makeFakeCms({ Asset: { read: async () => { throw new TypeError("Cannot read properties of null (reading 'is_deleted')"); } } });
+        await assert.rejects(() => readFullAsset(makeFakeDxm(cms), "999999999"), { message: "Asset not found: 999999999" });
+        await assert.rejects(() => findAsset(makeFakeDxm(cms), "999999999"), { message: "Asset not found: 999999999" });
+    });
+
+    test("find_asset still trims the same record to the summary shape", async () => {
+        const cms = makeFakeCms({ Asset: { read: async () => ({ ...ENVELOPE, asset: RAW }) } });
+        assert.deepEqual(await findAsset(makeFakeDxm(cms), "384206"), {
+            id: 384206, label: "Test", type: "File", fullPath: "/Site/Test", status: "Draft", folder_id: 275152, branchId: -2, error_msg: null
+        });
     });
 });
 

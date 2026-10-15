@@ -125,6 +125,17 @@ Present the results as an indented tree showing each item's label, ID, and type.
     );
 
     server.prompt(
+        "read_full_asset",
+        "Show every property of a DXM asset record, not just the summary find_asset gives",
+        { asset: z.string().describe("A numeric asset ID or a full CMS path") },
+        ({ asset }) => userMessage(
+`Show the full record of the DXM asset identified by "${asset}".
+
+Call read_full_asset with query="${asset}" (it accepts a numeric ID or a full path). Present the properties grouped sensibly: identity and location, workflow and status, template and model, versions and dates, and people (created, modified, published, checked out).`
+        )
+    );
+
+    server.prompt(
         "read_asset",
         "Read and display the content fields of a DXM asset",
         { id: z.string().describe("The ID of the asset to read") },

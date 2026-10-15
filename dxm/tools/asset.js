@@ -19,6 +19,13 @@ export function registerReadTools(server, dxm) {
     );
 
     server.tool(
+        "read_full_asset",
+        "Read the complete DXM asset record, by numeric ID or full path. find_asset returns a short summary (id, label, type, path, status, folder, branch); this returns every field the CMS holds, about 66 of them: e.g. workflow_id and workflow_step, template_id and template_label, model, subtype, extension, version ids, created/modified/published dates and users, checkout state and schedule flags. Use find_asset unless you need one of those. Field values are as the CMS sends them (e.g. type and status are numeric; statusName is the status's name).",
+        { query: z.string().describe("A numeric asset ID (e.g. \"12345\") or a full CMS path (e.g. \"/Site/Folder/Page\")") },
+        toolHandler(async ({query}) => jsonText(await dxm.readFullAsset(query)))
+    );
+
+    server.tool(
         "get_path",
         "Get the full CMS path of an asset by its numeric ID, optionally including the chain of ancestor assets",
         {
