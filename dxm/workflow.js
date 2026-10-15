@@ -1,4 +1,4 @@
-import { responseData } from "./util.js";
+import { mapAsset, responseData } from "./util.js";
 
 // Both return the helper response minus its envelope (above all the session cookie); the data
 // keeps its shape: { workflows } and { workflow }. Note /Workflow/Read returns every workflow on
@@ -63,16 +63,38 @@ function stateName(accessFile) {
     return accessFile ? String(accessFile).split("/").pop() : null;
 }
 
+// The helper doesn't throw when the CMS refuses a route; this used to ignore the response, so a
+// refused route was reported as a success.
 export async function routeAsset(dxm, id, stateId) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const request = new cms.Asset.RouteRequest(id, stateId);
-    return await cms.Asset.route(request);
+    return responseData(await cms.Asset.route(request), `Could not route asset ${id} to state ${stateId}`);
 }
 
+// Runs one of the commands the asset's current workflow step offers (what the CMS UI shows as
+// buttons), e.g. "Deploy to Stage". Unlike a route it also runs the step's rules, and it is
+// available to users who aren't allowed to route. Live on CPUK (asset 384206, command 38 from
+// Draft) the response carried the moved asset and the publish it started:
+// { requiredAction: "None", asset, publishingSessionId: 124990 }.
+//
+// A command the current step doesn't offer - already run, wrong state, or a made-up id - comes
+// back as isSuccessful: false, "Workflow command not found!", and the asset doesn't move. The
+// helper doesn't throw on that, and this used to ignore the response, so it was reported as a
+// success. It now throws, with a pointer to read_workflow.
 export async function executeWorkflowCommand(dxm, assetId, commandId, skipDependencies = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const request = new cms.Asset.ExecuteWorkflowCommandRequest(assetId, commandId, !!skipDependencies);
-    return await cms.Asset.executeWorkflowCommand(request);
+    const response = await cms.Asset.executeWorkflowCommand(request);
+    if (response?.isSuccessful === false && response.resultCode === "conWS_NotFound") {
+        throw new Error(`Command ${commandId} is not available for asset ${assetId} in its current state (${response.errorMessage || response.resultCode}). read_workflow lists the commands each state offers; match the asset's status to a step's status.`);
+    }
+    const data = responseData(response, `Could not run command ${commandId} on asset ${assetId}`);
+    return {
+        asset: data.asset ? mapAsset(cms, data.asset) : null,
+        // -1 / 0 when the command's step doesn't publish.
+        publishingSessionId: data.publishingSessionId > 0 ? data.publishingSessionId : null,
+        requiredAction: data.requiredAction ?? null
+    };
 }

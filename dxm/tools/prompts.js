@@ -445,9 +445,9 @@ Call publishing_activity_summary with no arguments. Report whether anything is s
 `Execute workflow command ${command_id} on the DXM asset identified by "${asset}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call execute_workflow_command with asset_id=<numericId> and command_id=${command_id}.
+2. Call execute_workflow_command with asset_id=<numericId> and command_id=${command_id}. If it reports the command is not available, call read_workflow for the asset's workflow, find the step whose status matches the asset's, and tell the user which commands that state offers.
 3. Report the result of the transition.
-4. If the command publishes, call publishing_activity_summary with asset_id=<numericId> and poll until the new session reports done=true, then report whether it succeeded and how many errors it had.`
+4. If the result has a publishingSessionId, call publishing_activity_summary with session_id=<that id> and poll until it reports done=true, then report whether the publish succeeded and how many errors it had.`
         )
     );
 

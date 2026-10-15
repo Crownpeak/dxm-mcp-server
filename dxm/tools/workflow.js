@@ -45,21 +45,20 @@ export function registerWriteTools(server, dxm) {
                 stateId = state.id;
             }
             await dxm.routeAsset(id, stateId);
-            return { content: [] };
+            return jsonText({ routed: true, assetId: id, stateId });
         })
     );
 
     server.tool(
         "execute_workflow_command",
-        "Execute a workflow command on an asset (the equivalent of clicking an Approve/Reject-style action button by its command ID). A command whose step publishes starts a publish but returns no session id: call publishing_activity_summary with asset_id to follow it.",
+        "Execute a workflow command on an asset: the equivalent of clicking a workflow button such as \"Deploy to Stage\" or \"Approve\". Use it to move an asset through workflow when route_file is not available or the step's own rules should run. Only the commands offered by the asset's current state work: read_workflow lists them per state with their commandId (match the asset's status to a step's status). Returns { asset, publishingSessionId, requiredAction }: asset shows the new status; publishingSessionId is set when the command starts a publish, so pass it to publishing_activity_summary as session_id to follow it.",
         {
             asset_id: z.number().describe("The ID of the asset"),
             command_id: z.number().describe("The ID of the workflow command to execute"),
             skip_dependencies: z.boolean().optional().describe("When true, do not move dependent assets through workflow")
         },
-        toolHandler(async ({asset_id, command_id, skip_dependencies}) => {
-            await dxm.executeWorkflowCommand(asset_id, command_id, !!skip_dependencies);
-            return { content: [] };
-        })
+        toolHandler(async ({asset_id, command_id, skip_dependencies}) =>
+            jsonText(await dxm.executeWorkflowCommand(asset_id, command_id, !!skip_dependencies))
+        )
     );
 }

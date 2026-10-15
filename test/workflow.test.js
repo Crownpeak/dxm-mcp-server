@@ -113,10 +113,32 @@ describe("routeAsset", () => {
         assert.equal(req.id, 100);
         assert.equal(req.stateId, 200);
     });
+
+    test("throws when the CMS refuses the route instead of reporting success", async () => {
+        const cms = makeFakeCms({
+            Asset: {
+                RouteRequest: class {},
+                route: async () => ({ isSuccessful: false, resultCode: "conWS_Failure", errorMessage: "Not allowed", cookie: ["s"] })
+            }
+        });
+        await assert.rejects(() => routeAsset(makeFakeDxm(cms), 100, 200), /Could not route asset 100 to state 200: Not allowed/);
+    });
 });
 
 describe("executeWorkflowCommand", () => {
-    function recordingCms() {
+    // The response live on CPUK for command 38 ("Deploy to Stage") on asset 384206, trimmed.
+    const LIVE_OK = {
+        requiredAction: "None", publishingSessionId: 124990,
+        asset: { id: 384206, label: "Test", type: 2, fullPath: "/Site/Test", statusName: "Stage", status: 783, folder_id: 275152, branchId: -2, error_msg: null, permissionList: "0100" },
+        resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret"], isSuccessful: true
+    };
+    // ...and for the same command once the asset had already moved on.
+    const LIVE_NOT_OFFERED = {
+        requiredAction: "None", asset: null, publishingSessionId: -1,
+        resultCode: "conWS_NotFound", errorMessage: "Workflow command not found!", internalCode: 0, responseValues: null, cookie: ["AWSALB=secret"], isSuccessful: false
+    };
+
+    function recordingCms(response = LIVE_OK) {
         let req;
         return {
             get req() { return req; },
@@ -127,7 +149,7 @@ describe("executeWorkflowCommand", () => {
                             Object.assign(this, { assetId, commandId, skipDependencies });
                         }
                     },
-                    executeWorkflowCommand: async r => { req = r; return { ok: true }; }
+                    executeWorkflowCommand: async r => { req = r; return response; }
                 }
             })
         };
@@ -147,5 +169,32 @@ describe("executeWorkflowCommand", () => {
         assert.equal(r.req.skipDependencies, true);
         await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5, 0);
         assert.equal(r.req.skipDependencies, false);
+    });
+
+    test("returns the moved asset and the publish it started, without the cookie", async () => {
+        const r = recordingCms();
+        const result = await executeWorkflowCommand(makeFakeDxm(r.cms), 384206, 38, true);
+        assert.deepEqual(result, {
+            asset: { id: 384206, label: "Test", type: "File", fullPath: "/Site/Test", status: "Stage", folder_id: 275152, branchId: -2, error_msg: null },
+            publishingSessionId: 124990,
+            requiredAction: "None"
+        });
+        assert.ok(!JSON.stringify(result).includes("secret"));
+    });
+
+    test("reports no session when the command doesn't publish", async () => {
+        const r = recordingCms({ ...LIVE_OK, publishingSessionId: -1 });
+        assert.equal((await executeWorkflowCommand(makeFakeDxm(r.cms), 1, 2)).publishingSessionId, null);
+    });
+
+    test("throws, pointing at read_workflow, when the current state doesn't offer the command", async () => {
+        const r = recordingCms(LIVE_NOT_OFFERED);
+        await assert.rejects(() => executeWorkflowCommand(makeFakeDxm(r.cms), 384206, 38, true),
+            /Command 38 is not available for asset 384206 in its current state \(Workflow command not found!\)\. read_workflow/);
+    });
+
+    test("throws the CMS's message for any other failure", async () => {
+        const r = recordingCms({ ...LIVE_NOT_OFFERED, resultCode: "conWS_Failure", errorMessage: "Asset is locked" });
+        await assert.rejects(() => executeWorkflowCommand(makeFakeDxm(r.cms), 5, 6), /Could not run command 6 on asset 5: Asset is locked/);
     });
 });
