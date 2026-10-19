@@ -177,7 +177,7 @@ A few representative examples of what an MCP client can do once connected:
 - *"Find the page at /Home/About and show me its fields."*
 - *"In the Marketing folder, list every asset whose name contains 'campaign'."*
 - *"Read the code in template 98765 and add a meta description tag."*
-- *"Publish assets 12345, 12346, and 12347, skipping dependencies."*
+- *"Publish assets 12345, 12346, and 12347, including their dependencies."* (dependencies are left out unless you ask)
 - *"Is the publish you just started finished yet? Did it have any errors?"*
 - *"Route /Home/Pricing to the Approval state."*
 - *"Compile the templates folder under project 'Acme Site' and report any errors."*
@@ -212,7 +212,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (297 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (298 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 

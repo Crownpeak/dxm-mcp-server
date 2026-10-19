@@ -247,13 +247,14 @@ ${folder_id
         "Route a DXM asset to a specific workflow state",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            state_id: z.string().describe("The numeric ID or name of the workflow state to route the asset to")
+            state_id: z.string().describe("The numeric ID or name of the workflow state to route the asset to"),
+            include_dependencies: z.string().optional().describe('Set to "true" to include dependent assets as well (by default only this asset)')
         },
-        ({ asset, state_id }) => userMessage(
+        ({ asset, state_id, include_dependencies }) => userMessage(
 `Route the DXM asset identified by "${asset}" to workflow state ${state_id}.
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
-2. Call route_file with the numeric asset ID and state ID ${state_id}.
+2. Call route_file with the numeric asset ID and state ID ${state_id}${include_dependencies === "true" ? " and include_dependencies=true" : ""}.
 3. Report the result of the routing operation.
 4. Call publishing_activity_summary with asset_id=<numericId>. If a session for this asset is not done, poll until it reports done=true, then report whether the publish succeeded and how many errors it had. If no new session appears, the state does not publish; say so.`
         )
@@ -405,13 +406,13 @@ ${folder_id
         "Publish a DXM asset that is not on a workflow",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            skip_dependencies: z.string().optional().describe('Set to "true" to skip dependent assets')
+            include_dependencies: z.string().optional().describe('Set to "true" to include dependent assets as well (by default only this asset)')
         },
-        ({ asset, skip_dependencies }) => userMessage(
+        ({ asset, include_dependencies }) => userMessage(
 `Publish the DXM asset identified by "${asset}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call publish_file with ids="[<numericId>]"${skip_dependencies === "true" ? " and skip_dependencies=true" : ""}. It returns the publishingSessionIds it started.
+2. Call publish_file with ids="[<numericId>]"${include_dependencies === "true" ? " and include_dependencies=true" : ""}. It returns the publishingSessionIds it started.
 3. Call publishing_activity_summary with session_id=<the first returned id> until the session reports done=true, then report whether it succeeded and how many errors it had.
 4. Confirm publication by calling list_links on the asset and reporting the published URLs.`
         )
@@ -460,14 +461,15 @@ Call ftp_servers. Present them as a table: id, name, hostname, root path, secure
         "Republish a DXM asset to a specific publishing package",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            publishing_server_id: z.string().describe("The publishing package: its numeric id, or its name as publishing_packages lists it")
+            publishing_server_id: z.string().describe("The publishing package: its numeric id, or its name as publishing_packages lists it"),
+            include_dependencies: z.string().optional().describe('Set to "true" to include dependent assets as well (by default only this asset)')
         },
-        ({ asset, publishing_server_id }) => userMessage(
+        ({ asset, publishing_server_id, include_dependencies }) => userMessage(
 `Republish the DXM asset identified by "${asset}" to the publishing package "${publishing_server_id}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
 2. Call publishing_packages and find the package whose id or name matches "${publishing_server_id}". It must be a package id, not an FTP server id. If none matches, or more than one name does, show the user the packages and stop.
-3. Call republish_file with ids="[<numericId>]" and publishing_server_id=<the package id>.
+3. Call republish_file with ids="[<numericId>]" and publishing_server_id=<the package id>${include_dependencies === "true" ? " and include_dependencies=true" : ""}.
 4. Report the publishingSessionIds it returns; publishing_activity_summary with session_id shows when it has finished.`
         )
     );
@@ -477,13 +479,14 @@ Call ftp_servers. Present them as a table: id, name, hostname, root path, secure
         "Execute a workflow command on a DXM asset",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            command_id: z.string().describe("The numeric ID of the workflow command")
+            command_id: z.string().describe("The numeric ID of the workflow command"),
+            include_dependencies: z.string().optional().describe('Set to "true" to include dependent assets as well (by default only this asset)')
         },
-        ({ asset, command_id }) => userMessage(
+        ({ asset, command_id, include_dependencies }) => userMessage(
 `Execute workflow command ${command_id} on the DXM asset identified by "${asset}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call execute_workflow_command with asset_id=<numericId> and command_id=${command_id}. If it reports the command is not available, call read_workflow for the asset's workflow, find the step whose status matches the asset's, and tell the user which commands that state offers.
+2. Call execute_workflow_command with asset_id=<numericId> and command_id=${command_id}${include_dependencies === "true" ? " and include_dependencies=true" : ""}. If it reports the command is not available, call read_workflow for the asset's workflow, find the step whose status matches the asset's, and tell the user which commands that state offers.
 3. Report the result of the transition.
 4. If the result has a publishingSessionId, call publishing_activity_summary with session_id=<that id> and poll until it reports done=true, then report whether the publish succeeded and how many errors it had.`
         )

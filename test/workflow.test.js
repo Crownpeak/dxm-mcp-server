@@ -101,17 +101,38 @@ describe("readWorkflow", () => {
 });
 
 describe("routeAsset", () => {
-    test("constructs a RouteRequest with id and stateId, then calls Asset.route", async () => {
-        let req;
+    function recordingCms() {
+        const calls = [];
         const cms = makeFakeCms({
             Asset: {
-                RouteRequest: class { constructor(id, stateId) { Object.assign(this, { id, stateId }); } },
-                route: async r => { req = r; return { ok: true }; }
+                RouteRequest: class {
+                    constructor(assetId, stateId) { Object.assign(this, { assetId, stateId }); }
+                    toJson() { return { assetId: this.assetId, stateId: this.stateId }; }
+                },
+                route: async r => { calls.push(r.toJson()); return { isSuccessful: true }; }
             }
         });
-        await routeAsset(makeFakeDxm(cms), 100, 200);
-        assert.equal(req.id, 100);
-        assert.equal(req.stateId, 200);
+        return { calls, cms };
+    }
+
+    test("sends PublishDependencies: false unless dependencies are asked for", async () => {
+        const r = recordingCms();
+        await routeAsset(makeFakeDxm(r.cms), 100, 200);
+        await routeAsset(makeFakeDxm(r.cms), 100, 200, true);
+        assert.deepEqual(r.calls, [
+            { assetId: 100, stateId: 200, PublishDependencies: false },
+            { assetId: 100, stateId: 200, PublishDependencies: true }
+        ]);
+    });
+
+    test("the real helper sends the wrapped body to /Asset/Route", async () => {
+        // Only the HTTP POST is stubbed: this is the helper's own RouteRequest and Asset.route.
+        const { default: CmsApi } = await import("crownpeak-dxm-accessapi-helper");
+        const cms = new CmsApi();
+        const posts = [];
+        cms.postRequest = async (path, data, onSuccess) => { posts.push({ path, data }); onSuccess({ resultCode: "conWS_Success" }); };
+        await routeAsset(makeFakeDxm(cms), 384206, 783, false);
+        assert.deepEqual(posts, [{ path: "/Asset/Route/", data: { assetId: 384206, stateId: 783, PublishDependencies: false } }]);
     });
 
     test("throws when the CMS refuses the route instead of reporting success", async () => {
@@ -155,19 +176,21 @@ describe("executeWorkflowCommand", () => {
         };
     }
 
-    test("constructs the request with assetId, commandId, and defaults skip to false", async () => {
+    test("skips dependencies unless they are asked for", async () => {
         const r = recordingCms();
         await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5);
         assert.equal(r.req.assetId, 100);
         assert.equal(r.req.commandId, 5);
+        assert.equal(r.req.skipDependencies, true);
+        await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5, true);
         assert.equal(r.req.skipDependencies, false);
     });
 
-    test("coerces skipDependencies to a boolean", async () => {
+    test("sends skipDependencies as a boolean", async () => {
         const r = recordingCms();
-        await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5, "true");
-        assert.equal(r.req.skipDependencies, true);
         await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5, 0);
+        assert.equal(r.req.skipDependencies, true);
+        await executeWorkflowCommand(makeFakeDxm(r.cms), 100, 5, "yes");
         assert.equal(r.req.skipDependencies, false);
     });
 

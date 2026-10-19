@@ -34,9 +34,10 @@ export function registerWriteTools(server, dxm) {
         "Route a DXM asset directly to a specific workflow state (lower-level than execute_workflow_command, which clicks a workflow action by ID). Routing into a publishing state starts a publish but returns no session id: call publishing_activity_summary with asset_id to follow it.",
         {
             id: z.number().describe("The ID of the asset to route"),
-            state_id: z.string().describe("The numeric ID or name of the workflow state to route the asset to")
+            state_id: z.string().describe("The numeric ID or name of the workflow state to route the asset to"),
+            include_dependencies: z.boolean().optional().describe("When true, also publish the assets this one depends on, if the state publishes. Default false: only this asset")
         },
-        toolHandler(async ({id, state_id}) => {
+        toolHandler(async ({id, state_id, include_dependencies}) => {
             let stateId;
             if (/^\d+$/.test(state_id.trim())) {
                 stateId = Number(state_id);
@@ -44,8 +45,9 @@ export function registerWriteTools(server, dxm) {
                 const state = await dxm.findAsset(`/System/States/${state_id}`);
                 stateId = state.id;
             }
-            await dxm.routeAsset(id, stateId);
-            return jsonText({ routed: true, assetId: id, stateId });
+            const includeDependencies = include_dependencies === true;
+            await dxm.routeAsset(id, stateId, includeDependencies);
+            return jsonText({ routed: true, assetId: id, stateId, includeDependencies });
         })
     );
 
@@ -55,10 +57,10 @@ export function registerWriteTools(server, dxm) {
         {
             asset_id: z.number().describe("The ID of the asset"),
             command_id: z.number().describe("The ID of the workflow command to execute"),
-            skip_dependencies: z.boolean().optional().describe("When true, do not move dependent assets through workflow")
+            include_dependencies: z.boolean().optional().describe("When true, also move the assets this one depends on through workflow. Default false: only this asset")
         },
-        toolHandler(async ({asset_id, command_id, skip_dependencies}) =>
-            jsonText(await dxm.executeWorkflowCommand(asset_id, command_id, !!skip_dependencies))
+        toolHandler(async ({asset_id, command_id, include_dependencies}) =>
+            jsonText(await dxm.executeWorkflowCommand(asset_id, command_id, include_dependencies === true))
         )
     );
 }

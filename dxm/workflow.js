@@ -65,10 +65,17 @@ function stateName(accessFile) {
 
 // The helper doesn't throw when the CMS refuses a route; this used to ignore the response, so a
 // refused route was reported as a success.
-export async function routeAsset(dxm, id, stateId) {
+//
+// Dependencies are only published when asked for. /Asset/Route takes a PublishDependencies flag
+// (Swagger spells it PascalCase, next to camelCase assetId / stateId) that the helper's
+// RouteRequest doesn't send, so the request is wrapped and the flag always sent, false unless
+// includeDependencies. This works because the helper's Asset.route only calls request.toJson() -
+// the same approach as createChildren in dxm/assets.js.
+export async function routeAsset(dxm, id, stateId, includeDependencies = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = new cms.Asset.RouteRequest(id, stateId);
+    const base = new cms.Asset.RouteRequest(id, stateId);
+    const request = { toJson: () => ({ ...base.toJson(), PublishDependencies: !!includeDependencies }) };
     return responseData(await cms.Asset.route(request), `Could not route asset ${id} to state ${stateId}`);
 }
 
@@ -82,10 +89,11 @@ export async function routeAsset(dxm, id, stateId) {
 // back as isSuccessful: false, "Workflow command not found!", and the asset doesn't move. The
 // helper doesn't throw on that, and this used to ignore the response, so it was reported as a
 // success. It now throws, with a pointer to read_workflow.
-export async function executeWorkflowCommand(dxm, assetId, commandId, skipDependencies = false) {
+// Dependencies are only moved along when asked for: skipDependencies is sent as the inverse.
+export async function executeWorkflowCommand(dxm, assetId, commandId, includeDependencies = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
-    const request = new cms.Asset.ExecuteWorkflowCommandRequest(assetId, commandId, !!skipDependencies);
+    const request = new cms.Asset.ExecuteWorkflowCommandRequest(assetId, commandId, !includeDependencies);
     const response = await cms.Asset.executeWorkflowCommand(request);
     if (response?.isSuccessful === false && response.resultCode === "conWS_NotFound") {
         throw new Error(`Command ${commandId} is not available for asset ${assetId} in its current state (${response.errorMessage || response.resultCode}). read_workflow lists the commands each state offers; match the asset's status to a step's status.`);

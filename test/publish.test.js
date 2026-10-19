@@ -57,25 +57,25 @@ describe("publishAssets", () => {
         assert.deepEqual(r.req.ids, [1, 2, 3]);
     });
 
-    test("defaults skipDependencies to false and honors explicit true", async () => {
+    test("skips dependencies unless they are asked for", async () => {
         const r = recordingCms();
         await publishAssets(makeFakeDxm(r.cms), [1]);
-        assert.equal(r.req.skip, false);
-        await publishAssets(makeFakeDxm(r.cms), [1], true);
         assert.equal(r.req.skip, true);
+        await publishAssets(makeFakeDxm(r.cms), [1], true);
+        assert.equal(r.req.skip, false);
     });
 
-    test("coerces truthy/falsy skipDependencies values to booleans", async () => {
+    test("sends skipDependencies as a boolean", async () => {
         const r = recordingCms();
         await publishAssets(makeFakeDxm(r.cms), [1], "yes");
-        assert.equal(r.req.skip, true);
-        await publishAssets(makeFakeDxm(r.cms), [1], 0);
         assert.equal(r.req.skip, false);
+        await publishAssets(makeFakeDxm(r.cms), [1], 0);
+        assert.equal(r.req.skip, true);
     });
 });
 
 describe("republishAssets", () => {
-    test("constructs PublishRefreshRequest with ids array, publishing server id, and skip flag", async () => {
+    test("constructs PublishRefreshRequest with ids array, publishing server id, and skip=false when dependencies are asked for", async () => {
         let req;
         const cms = makeFakeCms({
             Asset: {
@@ -86,10 +86,10 @@ describe("republishAssets", () => {
         await republishAssets(makeFakeDxm(cms), 7, 99, true);
         assert.deepEqual(req.ids, [7]);
         assert.equal(req.serverId, 99);
-        assert.equal(req.skip, true);
+        assert.equal(req.skip, false);
     });
 
-    test("wraps single id in array even when skip is omitted", async () => {
+    test("wraps single id in array, and skips dependencies by default", async () => {
         let req;
         const cms = makeFakeCms({
             Asset: {
@@ -99,7 +99,7 @@ describe("republishAssets", () => {
         });
         await republishAssets(makeFakeDxm(cms), 7, 99);
         assert.deepEqual(req.ids, [7]);
-        assert.equal(req.skip, false);
+        assert.equal(req.skip, true);
     });
 });
 

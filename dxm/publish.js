@@ -5,19 +5,23 @@ export async function getPublishLinks(dxm, id) {
     return await dxm._cms.Asset.getPublishLinks(id);
 }
 
-export async function publishAssets(dxm, ids, skipDependencies = false) {
+// Dependencies are only included when asked for. The API's flag is skipDependencies, so it's
+// always sent, as the inverse of includeDependencies (the tools used to expose skip_dependencies
+// defaulting to false, which included them). The same rule applies to routing and workflow
+// commands (dxm/workflow.js).
+export async function publishAssets(dxm, ids, includeDependencies = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const idArray = Array.isArray(ids) ? ids : [ids];
-    const request = new cms.Asset.PublishRequest(idArray, !!skipDependencies);
+    const request = new cms.Asset.PublishRequest(idArray, !includeDependencies);
     return await cms.Asset.publish(request);
 }
 
-export async function republishAssets(dxm, ids, publishingServerId, skipDependencies = false) {
+export async function republishAssets(dxm, ids, publishingServerId, includeDependencies = false) {
     await dxm._ensureLoggedIn();
     const cms = dxm._cms;
     const idArray = Array.isArray(ids) ? ids : [ids];
-    const request = new cms.Asset.PublishRefreshRequest(idArray, publishingServerId, !!skipDependencies);
+    const request = new cms.Asset.PublishRefreshRequest(idArray, publishingServerId, !includeDependencies);
     return await cms.Asset.publishRefresh(request);
 }
 

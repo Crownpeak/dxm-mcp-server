@@ -78,11 +78,11 @@ export function registerWriteTools(server, dxm) {
         "Publish one or more DXM assets that are not on a workflow. Returns the publishingSessionIds started; publishing continues after this returns, so pass one to publishing_activity_summary to see when it finishes.",
         {
             ids: z.string().describe('Asset IDs to publish, as a JSON array (e.g. "[12345]") or a single numeric ID'),
-            skip_dependencies: z.boolean().optional().describe("When true, do not also publish dependent assets")
+            include_dependencies: z.boolean().optional().describe("When true, also publish the assets these depend on. Default false: only the assets given are published")
         },
-        toolHandler(async ({ids, skip_dependencies}) => {
+        toolHandler(async ({ids, include_dependencies}) => {
             const idList = parseIdList(ids);
-            const response = await dxm.publishAssets(idList, !!skip_dependencies);
+            const response = await dxm.publishAssets(idList, include_dependencies === true);
             return jsonText(publishResult(response));
         })
     );
@@ -93,11 +93,11 @@ export function registerWriteTools(server, dxm) {
         {
             ids: z.string().describe('Asset IDs to republish, as a JSON array (e.g. "[12345]") or a single numeric ID'),
             publishing_server_id: z.number().describe("The id of the publishing package to republish to, from publishing_packages"),
-            skip_dependencies: z.boolean().optional().describe("When true, do not also republish dependent assets")
+            include_dependencies: z.boolean().optional().describe("When true, also republish the assets these depend on. Default false: only the assets given are republished")
         },
-        toolHandler(async ({ids, publishing_server_id, skip_dependencies}) => {
+        toolHandler(async ({ids, publishing_server_id, include_dependencies}) => {
             const idList = parseIdList(ids);
-            const response = await dxm.republishAssets(idList, publishing_server_id, !!skip_dependencies);
+            const response = await dxm.republishAssets(idList, publishing_server_id, include_dependencies === true);
             // Verified on CPUK: an id that isn't a package (e.g. an FTP server's) comes back as
             // conWS_Success with publishingSessionId -1 and no message.
             return jsonText(publishResult(response,
