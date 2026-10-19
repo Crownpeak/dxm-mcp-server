@@ -53,8 +53,14 @@ describe("profile store", () => {
         assert.deepEqual(await Profiles.listNames(), ["b"]);
     });
 
-    test("getProfile throws for an unknown name", async () => {
-        await assert.rejects(() => Profiles.getProfile("nope"), /Profile not found/);
+    test("getProfile throws for an unknown name, listing the saved names but no values", async () => {
+        const creds = { server: "s", instance: "i", username: "u", password: "S3CRET-PW", apiKey: "S3CRET-KEY" };
+        await assert.rejects(() => Profiles.getProfile("nope"), /Profile not found: nope\. No profiles are saved yet\./);
+        await Profiles.saveProfile("prod", creds);
+        await Profiles.saveProfile("dev", creds);
+        const err = await Profiles.getProfile("profile=prod").catch(e => e);
+        assert.equal(err.message, "Profile not found: profile=prod. Saved profiles: dev, prod.");
+        assert.doesNotMatch(err.message, /S3CRET/);
     });
 
     test("deleteProfile throws for an unknown name", async () => {

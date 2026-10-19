@@ -212,7 +212,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (296 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (297 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 

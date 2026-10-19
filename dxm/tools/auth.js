@@ -32,7 +32,8 @@ export function registerCredentialTools(server, dxm) {
         // profile is optional in the schema so we can return a helpful "use a profile" message
         // when omitted, instead of letting zod reject the call with a generic "Required" error.
         { profile: z.string().optional().describe("Name of a saved credential profile") },
-        toolHandler(async ({ profile }) => {
+        toolHandler(async ({ profile: given }) => {
+            const profile = Profiles.normalizeProfileName(given);
             if (!profile) {
                 throw new Error(
                     "login requires a `profile` argument. Save credentials first with " +

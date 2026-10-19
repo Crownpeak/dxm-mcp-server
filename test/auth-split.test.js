@@ -122,6 +122,21 @@ describe("login tool behavior (no elicitation)", () => {
         assert.equal(calls.ensureLoggedIn, 1);
         assert.match(result.content[0].text, /"authenticated":true/);
     });
+
+    test("tolerates the profile=<name> notation the docs use being passed as the name", async () => {
+        const { handlers, server } = captureServer();
+        const loaded = [];
+        const dxm = { ...fakeDxm(), loadProfileCredentials: async name => { loaded.push(name); }, _ensureLoggedIn: async () => {}, getAuthState: () => ({}) };
+        registerCredentialTools(server, dxm);
+        // The first is what a client actually sent live.
+        for (const profile of ["profile=SullivanCromwell", " Profile = SullivanCromwell ", "\"SullivanCromwell\"", "profile='SullivanCromwell'"]) {
+            await handlers.get("login")({ profile });
+        }
+        assert.deepEqual(loaded, ["SullivanCromwell", "SullivanCromwell", "SullivanCromwell", "SullivanCromwell"]);
+        const empty = await handlers.get("login")({ profile: "profile=" });
+        assert.equal(empty.isError, true);
+        assert.match(empty.content[0].text, /login requires a `profile` argument/);
+    });
 });
 
 describe("login_browser tool behavior", () => {

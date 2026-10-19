@@ -31,10 +31,20 @@ export async function listNames() {
     return Object.keys(all).sort();
 }
 
+// The docs and error messages write "login profile=<name>", and that whole text sometimes arrives
+// as the name (seen live: "Profile not found: profile=SullivanCromwell"). Strips a leading
+// "profile=" and surrounding quotes or whitespace. Profile names can't start with "profile=" as
+// a result, which costs nothing.
+export function normalizeProfileName(name) {
+    return String(name ?? "").trim().replace(/^profile\s*=\s*/i, "").trim().replace(/^(["'`])(.*)\1$/, "$2").trim();
+}
+
 export async function getProfile(name) {
     const all = await readAll();
     if (!Object.prototype.hasOwnProperty.call(all, name)) {
-        throw new Error(`Profile not found: ${name}`);
+        // Names only, never values - the same as list_profiles.
+        const names = Object.keys(all).sort();
+        throw new Error(`Profile not found: ${name}. ${names.length ? `Saved profiles: ${names.join(", ")}.` : "No profiles are saved yet."}`);
     }
     const p = all[name];
     return {
