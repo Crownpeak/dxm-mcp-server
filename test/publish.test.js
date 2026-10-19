@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { getPublishLinks, publishAssets, republishAssets, publishingActivitySummary, ACTIVITY_SUMMARY_PATH } from "../dxm/publish.js";
+import { getPublishLinks, publishAssets, republishAssets, publishingActivitySummary, publishingPackages, ftpServers, ACTIVITY_SUMMARY_PATH, PACKAGES_SETTINGS_PATH, FTP_SERVERS_PATH } from "../dxm/publish.js";
 import { publishingSessionIds, publishResult } from "../dxm/tools/publish.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
@@ -100,6 +100,115 @@ describe("republishAssets", () => {
         await republishAssets(makeFakeDxm(cms), 7, 99);
         assert.deepEqual(req.ids, [7]);
         assert.equal(req.skip, false);
+    });
+});
+
+describe("ftpServers", () => {
+    // Shaped like the live CPUK response (password is null there; username is set).
+    const RESPONSE = {
+        ftpServers: [
+            { id: 21, name: "Stage CPUK", hostname: "50.19.210.147", username: "FTP-USER-SECRET", password: "FTP-PASS-SECRET", rootPath: "/",
+              activeMode: false, secureMode: true, safeWrite: false, inUse: 1, isDeleted: false, isInserted: false, isModified: false, certStorageId: null, rebexTrace: false },
+            { id: 43, name: "Abhay Sharma", hostname: "", username: "u", password: null, rootPath: "",
+              activeMode: false, secureMode: true, safeWrite: false, inUse: 0, isDeleted: false },
+            { id: 9, name: "Gone", hostname: "h", password: null, isDeleted: true }
+        ],
+        resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=COOKIE-SECRET"], isSuccessful: true
+    };
+    const fakeCms = (response = RESPONSE, calls = []) => makeFakeCms({
+        Util: { makeCall: async (cms, path, body) => { calls.push({ path, body }); return response; } }
+    });
+
+    test("posts an empty body to export-ftp", async () => {
+        const calls = [];
+        await ftpServers(makeFakeDxm(fakeCms(RESPONSE, calls)));
+        assert.deepEqual(calls, [{ path: "/settings/publishing/export-ftp", body: {} }]);
+        assert.equal(FTP_SERVERS_PATH, "/settings/publishing/export-ftp");
+    });
+
+    test("allow-lists each live server, without its username, password or the cookie", async () => {
+        const result = await ftpServers(makeFakeDxm(fakeCms()));
+        assert.deepEqual(result, {
+            ftpServers: [
+                { id: 21, name: "Stage CPUK", hostname: "50.19.210.147", rootPath: "/", secureMode: true, activeMode: false, safeWrite: false, inUse: 1 },
+                { id: 43, name: "Abhay Sharma", hostname: null, rootPath: null, secureMode: true, activeMode: false, safeWrite: false, inUse: 0 }
+            ]
+        });
+        assert.doesNotMatch(JSON.stringify(result), /SECRET/);
+    });
+
+    test("throws the CMS's message when it refuses", async () => {
+        const cms = fakeCms({ resultCode: "conWS_Failure", errorMessage: "Access denied", isSuccessful: false });
+        await assert.rejects(() => ftpServers(makeFakeDxm(cms)), /Could not read the FTP servers: Access denied/);
+    });
+});
+
+describe("publishingPackages", () => {
+    // Trimmed from the live CPUK response. The server lists carry secrets, as they do live.
+    const pkg = (over = {}) => ({
+        id: 34, name: "Azure Test 2 Live", connectorList: [{ id: 44, isDeleted: false }],
+        odbcId: -1, smtpId: -1, sftpId: 0, httpId: -1, searchG2Id: 0, caaSCollectionId: 0, smartSearchDataGeneratorId: 0,
+        enabled: true, configuredHostName: "", configuredPath: "/live2/", encodeUTF8: false,
+        isDeleted: false, isInserted: false, isModified: false, packageState: "Initialized",
+        includeInAnalytics: false, dqmConnectorId: 0, dqmWebsiteId: "", additionalHostnames: "", domainHTTPS: false,
+        workflowPublishData: null, ...over
+    });
+    const RESPONSE = {
+        packages: [
+            pkg(),
+            pkg({ id: 10, name: "bbi-classic-stage", connectorList: [{ id: 21, isDeleted: false }, { id: 32, isDeleted: true }, { id: 99, isDeleted: false }],
+                searchG2Id: 14, configuredHostName: "stagecpuk.crownpeak.com", configuredPath: "/wwwroot-demo/cpuk/stage/bbi-classic/" }),
+            pkg({ id: 5, name: "Gone", isDeleted: true })
+        ],
+        ftpServers: [
+            { id: 21, name: "Stage FTP", hostname: "ftp.example.net", username: "ftpuser", password: "FTP-SECRET", isDeleted: false },
+            { id: 32, name: "Old FTP", password: "FTP-SECRET-2", isDeleted: false }
+        ],
+        absServers: [{ id: 44, name: "Azure Test 2", azureStorageAccountName: "acct", azureStorageAccountAccessKey: "ABS-SECRET", isDeleted: false }],
+        httpServers: [{ id: 1, name: "Hook", httpUsername: "u", httpPassword: "HTTP-SECRET", isDeleted: false }],
+        searchG2Servers: [{ id: 14, name: "CPUK Stage search", isDeleted: false, isEnabled: true }],
+        groupPermissionList: { secretGroups: ["GROUP-SECRET"] },
+        activityUsers: { users: ["USER-SECRET"] },
+        resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=COOKIE-SECRET"], isSuccessful: true
+    };
+    const fakeCms = (response = RESPONSE, calls = []) => makeFakeCms({
+        Util: { makeCall: async (cms, path, body) => { calls.push({ path, body }); return response; } }
+    });
+
+    test("posts an empty body to the packages settings endpoint", async () => {
+        const calls = [];
+        await publishingPackages(makeFakeDxm(fakeCms(RESPONSE, calls)));
+        assert.equal(PACKAGES_SETTINGS_PATH, "/settings/publishing/packagessettings");
+        assert.deepEqual(calls, [{ path: PACKAGES_SETTINGS_PATH, body: {} }]);
+    });
+
+    test("allow-lists each package and resolves its connectors and search collection by name", async () => {
+        const { packages } = await publishingPackages(makeFakeDxm(fakeCms()));
+        assert.deepEqual(packages, [
+            {
+                id: 34, name: "Azure Test 2 Live", enabled: true, hostName: null, additionalHostnames: null, path: "/live2/",
+                https: false, encodeUTF8: false, includeInAnalytics: false, state: "Initialized",
+                connectors: [{ id: 44, name: "Azure Test 2", type: "Azure Blob Storage" }],
+                searchG2: null, caasCollection: null, smartSearchDataGenerator: null
+            },
+            {
+                id: 10, name: "bbi-classic-stage", enabled: true, hostName: "stagecpuk.crownpeak.com", additionalHostnames: null,
+                path: "/wwwroot-demo/cpuk/stage/bbi-classic/", https: false, encodeUTF8: false, includeInAnalytics: false, state: "Initialized",
+                // 32 is deleted from this package; 99 is in no server list.
+                connectors: [{ id: 21, name: "Stage FTP", type: "FTP" }, { id: 99, name: null, type: null }],
+                searchG2: { id: 14, name: "CPUK Stage search", type: "Search G2" }, caasCollection: null, smartSearchDataGenerator: null
+            }
+        ]);
+    });
+
+    test("never returns the server lists' credentials, permissions, users or the cookie", async () => {
+        const text = JSON.stringify(await publishingPackages(makeFakeDxm(fakeCms())));
+        assert.doesNotMatch(text, /SECRET|ftp\.example\.net|ftpuser|acct/);
+    });
+
+    test("throws the CMS's message when it refuses", async () => {
+        const cms = fakeCms({ resultCode: "conWS_Failure", errorMessage: "Access denied", cookie: ["s"], isSuccessful: false });
+        await assert.rejects(() => publishingPackages(makeFakeDxm(cms)), /Could not read the publishing packages: Access denied/);
     });
 });
 
@@ -243,6 +352,13 @@ describe("publishResult", () => {
             errorMessage: "The following error(s) occurred while processing the request:\r\n276861: User is not allowed to publish this asset."
         };
         assert.throws(() => publishResult(refused), /User is not allowed to publish this asset/);
+    });
+
+    test("adds the hint when the CMS started nothing and gave no reason", () => {
+        // Live on CPUK: republish to an FTP server id (42) instead of a package id.
+        const silent = { publishingSessionId: -1, publishingSessionIds: [], resultCode: "conWS_Success", errorMessage: "", isSuccessful: true };
+        assert.throws(() => publishResult(silent, "Check the package id."), { message: "The CMS did not start a publishing session. Check the package id." });
+        assert.throws(() => publishResult(silent), { message: "The CMS did not start a publishing session." });
     });
 
     test("throws when no session started even without an error message", () => {

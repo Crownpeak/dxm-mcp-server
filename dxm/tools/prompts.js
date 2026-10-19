@@ -434,18 +434,41 @@ Call publishing_activity_summary with no arguments. Report whether anything is s
     );
 
     server.prompt(
+        "publishing_packages",
+        "List the DXM publishing packages and where each one publishes to",
+        {},
+        () => userMessage(
+`List the DXM publishing packages.
+
+Call publishing_packages. Present them as a table: id, name, enabled, host name and path, and connectors (name and type). Group them by site where the names make that clear (e.g. "... Live" and "... Stage"), and point out any that are disabled or have no connectors.`
+        )
+    );
+
+    server.prompt(
+        "ftp_servers",
+        "List the DXM FTP publishing servers",
+        {},
+        () => userMessage(
+`List the DXM FTP publishing servers.
+
+Call ftp_servers. Present them as a table: id, name, hostname, root path, secure mode and inUse. If the user wants to know which packages use a server, call publishing_packages and match its connectors' ids.`
+        )
+    );
+
+    server.prompt(
         "republish_file",
-        "Republish a DXM asset to a specific publishing server",
+        "Republish a DXM asset to a specific publishing package",
         {
             asset: z.string().describe("A numeric asset ID or a full CMS path"),
-            publishing_server_id: z.string().describe("The numeric ID of the publishing server")
+            publishing_server_id: z.string().describe("The publishing package: its numeric id, or its name as publishing_packages lists it")
         },
         ({ asset, publishing_server_id }) => userMessage(
-`Republish the DXM asset identified by "${asset}" to publishing server ${publishing_server_id}.
+`Republish the DXM asset identified by "${asset}" to the publishing package "${publishing_server_id}".
 
 1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
-2. Call republish_file with ids="[<numericId>]" and publishing_server_id=${publishing_server_id}.
-3. Report the result.`
+2. Call publishing_packages and find the package whose id or name matches "${publishing_server_id}". It must be a package id, not an FTP server id. If none matches, or more than one name does, show the user the packages and stop.
+3. Call republish_file with ids="[<numericId>]" and publishing_server_id=<the package id>.
+4. Report the publishingSessionIds it returns; publishing_activity_summary with session_id shows when it has finished.`
         )
     );
 

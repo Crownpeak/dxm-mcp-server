@@ -124,7 +124,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      assets.js      findAsset, getPath, listFolder/Fields, set/deleteFields, setCode,
                     create*, branch/delete/undelete, move/rename, logMessage
      binary.js      downloadAsset, uploadAsset, attachAsset, viewOutput, viewInput
-     publish.js     getPublishLinks, publishAssets, republishAssets, publishingActivitySummary
+     publish.js     getPublishLinks, publishAssets, republishAssets, publishingActivitySummary, publishingPackages, ftpServers
      workflow.js    listWorkflows, getWorkflow, readWorkflow, routeAsset, executeWorkflowCommand
      build.js       compileLibrary, compileProject, compileTemplates
      properties.js  listAttachments, readSiteRoot, listVersions, getVersion,
@@ -148,7 +148,7 @@ Three layers, all in ES Modules (`"type": "module"`):
      auth.js        login, logout, whoami, list_profiles, delete_profile (all read-side so both stdio servers expose them; HTTP exposes only whoami)
      asset.js       find/list/get/set, all create_*, move/rename, delete/undelete, branch, log_message
      binary.js      download_image, download_file, view_output, view_input, upload_file, attach_file
-     publish.js     list_links, publishing_activity_summary, publish_file, republish_file
+     publish.js     list_links, publishing_activity_summary, publishing_packages, ftp_servers, publish_file, republish_file
      workflow.js    list_workflows, get_workflow, read_workflow, route_file, execute_workflow_command
      build.js       compile_library, compile_project, compile_templates
      properties.js  list_attachments, read_site_root, list_versions, get_version,
@@ -205,6 +205,20 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 - **`execute_workflow_command`** posts `/Asset/ExecuteWorkflowCommand` `{ assetId, commandId, skipDependencies }`. It is the way to move an asset when `route_file` is not available, and unlike a route it runs the step's own rules. It now returns `{ asset, publishingSessionId, requiredAction }` instead of nothing. Verified live on CPUK with asset 384206 and command 38 ("Deploy to Stage" on workflow 11): the response carried the moved asset (`mapAsset` shape) and the publish it started. `publishingSessionId` is `null` when the step doesn't publish (the CMS sends `-1`).
   - **A command the current state doesn't offer is refused**, whether it already ran, is from a different state, or is a made-up id. The CMS returns `isSuccessful: false`, `conWS_NotFound`, "Workflow command not found!" and the asset doesn't move. The helper doesn't throw, and this tool used to ignore the response, so that was reported as a success. It now throws, and the message points at `read_workflow`.
   - **`route_file` had the same gap.** It now throws on a refused route (via `responseData`) and returns `{ routed, assetId, stateId }`.
+
+- **`publishing_packages`** (`publishingPackages` in `dxm/publish.js`) lists the publishing packages: id, name, enabled, host name, path, connectors and the search, CaaS or Smart Search target each one feeds. It posts `{}` to `/settings/publishing/packagessettings` through `cms.Util.makeCall`, because the helper has no wrapper.
+  - **That endpoint is the whole publishing-settings page and holds credentials.** Verified on CPUK: `ftpServers[].password`, `httpServers[].httpPassword`, `absServers[].azureStorageAccountAccessKey`, plus `groupPermissionList` and `activityUsers`. So packages are **allow-listed**, the same rule as `view_input`.
+  - **Server lists are read only for names.** A package refers to its connectors by id (`connectorList`), so `lookup` resolves each to `{ id, name, type }` from `ftpServers` / `absServers` / `s3Servers` / `gcsServers` / `httpServers` / `odbcServers`. `searchG2Id`, `caaSCollectionId` and `smartSearchDataGeneratorId` resolve the same way; `0` and `-1` mean none.
+  - **Deleted packages and connectors are dropped**, as are the UI's `isInserted` / `isModified` edit flags.
+  - **Live on CPUK:** 34 packages and ~12.8 KB of output. All connectors resolved, and none of the raw response's 22 credential-like values appear in the result.
+  - **A package id is what the API calls a "publishing server".** `republish_file`'s `publishing_server_id` (`/Asset/PublishRefresh`'s `publishingServerId`) takes a package id, and so does `publishingServerId` in a workflow's publishing rules. Verified live on CPUK by republishing scratch asset 384206 twice:
+    - **Package 3 ("NoPublish"):** started session 124997, a Refresh of 1 document that completed in ~1.2s.
+    - **FTP server 42:** not a package id. The CMS answered `conWS_Success` with `publishingSessionId: -1`, no session and no message.
+
+    Workflow 11 agrees: its Stage step's `publishingServerId`s are exactly the stage packages (1 Stage Site, 4 mle-stage-site, ...), and most of them are not FTP ids. `publishResult` already throws when no session starts. `republish_file` passes it a hint so that error names the likely cause, and its description and prompt point at `publishing_packages`.
+
+- **`ftp_servers`** (`ftpServers` in `dxm/publish.js`) posts `{}` to `/settings/publishing/export-ftp`. It returns each live FTP server's `id`, `name`, `hostname`, `rootPath`, `secureMode`, `activeMode`, `safeWrite` and `inUse`, so 10 servers come to ~1.5 KB on CPUK. These are the ids in a package's `connectors`.
+  - **Allow-listed:** each record also has the FTP `username` and a `password` field. The password was `null` from this endpoint on CPUK, but it's the same record shape as `packagessettings`, so it's never relied on staying null.
 
 - **`list_links`** by default filters published URLs to those whose `packageName` (case-insensitive) contains "live" or "prod"; pass `all: true` to bypass the filter.
 
@@ -269,10 +283,10 @@ Anything that **mutates server state** lives in `registerWriteTools` and is only
 
 ## Tool roster
 
-61 tools and 63 prompts. Read tools (28) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 23); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
+63 tools and 65 prompts. Read tools (30) live on both stdio servers (HTTP read drops 5 credential-mutation tools, exposing only 25); write tools (33) only on the full server. The only tool with no prompt companion is `create_user`, because it takes a password argument that should not live in prompt templates.
 
-**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `read_full_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `view_input`, `list_links`, `publishing_activity_summary`, `list_workflows`, `get_workflow`, `read_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
+**Read tools**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `find_asset`, `read_full_asset`, `get_path`, `list_folder`, `list_fields`, `get_code`, `download_image`, `download_file`, `view_output`, `view_input`, `list_links`, `publishing_activity_summary`, `publishing_packages`, `ftp_servers`, `list_workflows`, `get_workflow`, `read_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `list_users`, `publishing_errors`, `site_summary`.
 
 **Write tools**: `revert_to_version`, `set_fields`, `set_field`, `delete_fields`, `delete_field`, `set_code`, `delete_file`, `undelete_file`, `branch_file`, `move_file`, `rename_file`, `create_file_from_model`, `create_file`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `upload_file`, `upload_replace_file`, `attach_file`, `publish_file`, `republish_file`, `route_file`, `execute_workflow_command`, `compile_library`, `compile_project`, `compile_templates`, `set_model`, `set_template`, `set_workflow`, `create_user`.
 
-**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_full_asset`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `publishing_activity_summary`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `view_input`, `list_workflows`, `get_workflow`, `read_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.
+**Prompts**: `login`, `login_browser`, `logout`, `whoami`, `list_profiles`, `delete_profile`, `lookup`, `browse`, `read_full_asset`, `read_asset`, `edit_asset`, `edit_code`, `get_code`, `list_links`, `delete_file`, `undelete_file`, `branch_file`, `route_file`, `create_file_from_model`, `create_file`, `get_path`, `move_file`, `rename_file`, `set_field`, `set_fields`, `delete_field`, `delete_fields`, `set_code`, `set_model`, `set_template`, `set_workflow`, `publish_file`, `republish_file`, `publishing_activity_summary`, `publishing_packages`, `ftp_servers`, `execute_workflow_command`, `view_output`, `create_folder`, `create_folder_with_model`, `create_project`, `create_site_root`, `create_library_reference`, `log_message`, `download_image`, `download_file`, `view_input`, `list_workflows`, `get_workflow`, `read_workflow`, `list_attachments`, `read_site_root`, `list_versions`, `get_version`, `compare_version`, `revert_to_version`, `list_users`, `publishing_errors`, `site_summary`, `compile_library`, `compile_project`, `compile_templates`, `upload_file`, `upload_replace_file`, `attach_file`.

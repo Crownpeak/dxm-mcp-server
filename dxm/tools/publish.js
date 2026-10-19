@@ -16,11 +16,13 @@ export function publishingSessionIds(response) {
 // (observed live for "User is not allowed to publish this asset"). With no session started that is
 // a failure and must surface as one; with a session started some assets may still have been
 // refused, so the CMS's message travels alongside the ids instead of being dropped.
-export function publishResult(response) {
+// `hint` is added when the CMS started nothing without saying why.
+export function publishResult(response, hint = null) {
     const ids = publishingSessionIds(response);
     const failed = response?.isSuccessful === false;
     if (ids.length === 0) {
-        throw new Error(failed && response.errorMessage ? response.errorMessage : "The CMS did not start a publishing session.");
+        if (failed && response.errorMessage) throw new Error(response.errorMessage);
+        throw new Error(hint ? `The CMS did not start a publishing session. ${hint}` : "The CMS did not start a publishing session.");
     }
     return failed ? { publishingSessionIds: ids, errors: response.errorMessage ?? null } : { publishingSessionIds: ids };
 }
@@ -54,6 +56,20 @@ export function registerReadTools(server, dxm) {
         toolHandler(async ({session_id, asset_id}) =>
             jsonText(await dxm.publishingActivitySummary({ sessionId: session_id, assetId: asset_id })))
     );
+
+    server.tool(
+        "publishing_packages",
+        "List the CMS's publishing packages: the destinations publishing goes to, typically one per site and environment (e.g. \"... Live\", \"... Stage\"). Each has its id, name, whether it is enabled, the host name and path it publishes to, its connectors (FTP, Azure Blob Storage, ... by id, name and type), and any Search G2 collection, CaaS collection or Smart Search generator it feeds. Deleted packages are omitted. Connection details and credentials are never included. A package's id is what republish_file takes as publishing_server_id, and what a workflow's publishing rules (read_workflow) call publishingServerId.",
+        {},
+        toolHandler(async () => jsonText(await dxm.publishingPackages()))
+    );
+
+    server.tool(
+        "ftp_servers",
+        "List the CMS's FTP publishing servers: the connectors publishing packages send files through (publishing_packages lists each package's connectors by these ids). Each has its id, name, hostname, root path, secure/active mode, safe-write flag and inUse. Deleted servers are omitted. Usernames and passwords are never included.",
+        {},
+        toolHandler(async () => jsonText(await dxm.ftpServers()))
+    );
 }
 
 export function registerWriteTools(server, dxm) {
@@ -73,16 +89,19 @@ export function registerWriteTools(server, dxm) {
 
     server.tool(
         "republish_file",
-        "Republish one or more DXM assets to a specific publishing server. Returns the publishingSessionIds started; pass one to publishing_activity_summary to see when it finishes.",
+        "Republish one or more DXM assets to one publishing package (the CMS calls it a publishing server). publishing_server_id is a package id from publishing_packages, not an FTP server id from ftp_servers. Returns the publishingSessionIds started; pass one to publishing_activity_summary to see when it finishes.",
         {
             ids: z.string().describe('Asset IDs to republish, as a JSON array (e.g. "[12345]") or a single numeric ID'),
-            publishing_server_id: z.number().describe("The ID of the publishing server"),
+            publishing_server_id: z.number().describe("The id of the publishing package to republish to, from publishing_packages"),
             skip_dependencies: z.boolean().optional().describe("When true, do not also republish dependent assets")
         },
         toolHandler(async ({ids, publishing_server_id, skip_dependencies}) => {
             const idList = parseIdList(ids);
             const response = await dxm.republishAssets(idList, publishing_server_id, !!skip_dependencies);
-            return jsonText(publishResult(response));
+            // Verified on CPUK: an id that isn't a package (e.g. an FTP server's) comes back as
+            // conWS_Success with publishingSessionId -1 and no message.
+            return jsonText(publishResult(response,
+                `Check that publishing_server_id (${publishing_server_id}) is a package id from publishing_packages; an id that isn't a package starts nothing and the CMS gives no error.`));
         })
     );
 }
