@@ -72,6 +72,9 @@ If you work with more than one DXM instance, save each set of credentials under 
 npm run profile -- add production
 # Prompts for server, instance, username, password (masked), and api key.
 # Stored in ~/.dxm-mcp/profiles.json with 0600 permissions (filesystem ACL on Windows).
+
+# Later, to change the password (asked twice) and optionally the API key:
+npm run profile -- passwd production
 ```
 
 Then, from your MCP client, call the `login` tool with the profile name:
@@ -209,7 +212,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (237 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (262 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 
@@ -255,6 +258,13 @@ The server has no active credentials or session. Either fill out `.env` and rest
 
 **`login` returns "login requires a `profile` argument."**
 Credentials cannot be entered through the MCP chat — the spec forbids it. Save a profile from a terminal with `npm run profile -- add <name>` then call `login profile=<name>`. Or set the `CMS_*` env vars in `.env` and restart the server. Or use `login_browser` if you'd prefer to authenticate through a real CMS login page.
+
+**A tool returns "Authentication failed ... These credentials will not be tried again".**
+The CMS rejected the login. Three failed logins lock a DXM account until an administrator resets it, so the server never retries credentials the CMS has rejected: not on later tool calls, not after `logout`, and not when the same profile is loaded again unchanged. The message says which case applies:
+- *rejected the username or password* (`conWS_InvalidUserNameOrPassword`): fix the password with `npm run profile -- passwd <name>` (or in `.env`, then restart), then `login profile=<name>`.
+- *the password has expired* (`conWS_PasswordExpired`): change it in the CMS first. `login_browser` does this: the CMS page asks for a new password and the session is logged in, and the result says `passwordChanged: true`. Then update the profile the same way.
+
+`whoami` shows the failure too, as `lastError`. If the CMS couldn't be reached at all (or refused the API key), tool calls still don't retry, but calling `login profile=<name>` again does.
 
 **`login_browser` returns "Browser login needs the optional `playwright` dependency."**
 Playwright wasn't installed (probably because `npm install --no-optional` was used). Run `npm install playwright` and then `npx playwright install chromium` to download the browser binary.

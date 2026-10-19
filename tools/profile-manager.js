@@ -10,6 +10,7 @@ function usage() {
         "Usage:\n" +
         "  node tools/profile-manager.js list\n" +
         "  node tools/profile-manager.js add <name>\n" +
+        "  node tools/profile-manager.js passwd <name>   (change the password, optionally the API key)\n" +
         "  node tools/profile-manager.js remove <name>\n"
     );
 }
@@ -102,6 +103,28 @@ async function cmdAdd(name) {
     }
 }
 
+// Replaces the password (and optionally the API key) of an existing profile, keeping the rest.
+// The password is asked for twice: a typo here costs a failed login, and three of those lock the
+// account.
+async function cmdPasswd(name) {
+    if (!name) { usage(); process.exit(2); }
+    const existing = await Profiles.getProfile(name);
+    process.stdout.write(`Updating profile "${name}" (${existing.username} on ${existing.server}/${existing.instance}).\n`);
+    const password = await askMasked("New password:     ");
+    if (!password) {
+        process.stderr.write("Password is required.\n");
+        process.exit(1);
+    }
+    const confirm = await askMasked("Confirm password: ");
+    if (confirm !== password) {
+        process.stderr.write("Passwords do not match; profile unchanged.\n");
+        process.exit(1);
+    }
+    const apiKey = await askMasked("API key (Enter to keep the current one): ");
+    await Profiles.saveProfile(name, { ...existing, password, apiKey: apiKey || existing.apiKey });
+    process.stdout.write(`Updated profile "${name}". Call login profile=${name} to use it.\n`);
+}
+
 async function cmdRemove(name) {
     if (!name) { usage(); process.exit(2); }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -124,6 +147,7 @@ async function main() {
         switch (cmd) {
             case "list":   await cmdList(); break;
             case "add":    await cmdAdd(name); break;
+            case "passwd": await cmdPasswd(name); break;
             case "remove": await cmdRemove(name); break;
             default:       usage(); process.exit(2);
         }

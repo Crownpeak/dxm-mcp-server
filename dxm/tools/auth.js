@@ -9,7 +9,7 @@ import * as Profiles from "../profiles.js";
 export function registerWhoami(server, dxm) {
     server.tool(
         "whoami",
-        "Report the currently active CMS server, instance, and username (if any)",
+        "Report the currently active CMS server, instance, and username (if any). If logging in with these credentials failed, lastError says why (resultCode, message) and authenticated is false.",
         {},
         toolHandler(async () => jsonText(dxm.getAuthState()))
     );
@@ -25,7 +25,10 @@ export function registerCredentialTools(server, dxm) {
         "login",
         "Authenticate to a DXM CMS instance using a saved credential profile. " +
         "Credentials cannot be entered through the chat — create a profile first with " +
-        "`node tools/profile-manager.js add <name>` from a real terminal.",
+        "`node tools/profile-manager.js add <name>` from a real terminal. " +
+        "If the CMS rejects the login (wrong or expired password), do NOT call login again with the same " +
+        "profile: three failed logins lock the account. The error says what the user must change first " +
+        "(e.g. `npm run profile -- passwd <name>`); the server refuses to retry unchanged credentials.",
         // profile is optional in the schema so we can return a helpful "use a profile" message
         // when omitted, instead of letting zod reject the call with a generic "Required" error.
         { profile: z.string().optional().describe("Name of a saved credential profile") },
@@ -51,7 +54,10 @@ export function registerCredentialTools(server, dxm) {
         "and per-instance API key from the resulting browser session. Supports every provider the " +
         "CMS web UI supports (standard password, SSO, MFA). Requires the optional `playwright` " +
         "dependency: `npm install playwright && npx playwright install chromium`. " +
-        "The captured session lives in memory only — restart the server to drop it.",
+        "The captured session lives in memory only — restart the server to drop it. " +
+        "This is also the way through an expired password: the CMS page asks for a new one and the " +
+        "login completes. When that happens the result has passwordChanged: true — tell the user to " +
+        "update any saved copy of the password (`npm run profile -- passwd <name>`, or .env).",
         {
             server: z.string().min(1).describe("CMS hostname, e.g. cms.crownpeak.net (no scheme, no path)"),
             instance: z.string().min(1).describe("CMS instance name, e.g. CPUK")

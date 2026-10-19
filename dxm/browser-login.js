@@ -3,6 +3,8 @@
 // import so it stays an optional dependency — installs that only use password
 // login never pay the Chromium-download cost.
 
+import { isDebugEnabled, truncate } from "./debug.js";
+
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 250;
 // After /auth/authenticate succeeds, the CMS UI fires several follow-up XHRs
@@ -35,6 +37,7 @@ export async function runBrowserLogin({ server, instance, timeoutMs = LOGIN_TIME
     let authSucceeded = false;
     let systemContextSucceeded = false;
     let userClosedBrowser = false;
+    let passwordChanged = false;
 
     page.on("request", req => {
         if (capturedApiKey) return;
@@ -43,9 +46,39 @@ export async function runBrowserLogin({ server, instance, timeoutMs = LOGIN_TIME
         if (headers["x-api-key"]) capturedApiKey = headers["x-api-key"];
     });
 
+    // DXM_MCP_DEBUG: trace what the CMS UI does during the login - path, status and resultCode of
+    // each AccessAPI response, plus page navigations. Never request bodies (the authenticate and
+    // change-password calls carry passwords), cookies or headers.
+    if (isDebugEnabled()) {
+        page.on("response", async resp => {
+            const url = resp.url();
+            if (!/\/cpt_webservice\//i.test(url)) return;
+            let result = "";
+            try {
+                const body = await resp.json();
+                result = ` ${body.resultCode ?? body.ResultCode ?? ""}${body.errorMessage ? ` "${truncate(body.errorMessage, 200)}"` : ""}`;
+            } catch { /* not JSON */ }
+            process.stderr.write(`[login_browser] ${resp.request().method()} ${new URL(url).pathname} -> ${resp.status()}${result}\n`);
+        });
+        page.on("framenavigated", frame => {
+            if (frame === page.mainFrame()) process.stderr.write(`[login_browser] navigated ${new URL(frame.url()).pathname}${new URL(frame.url()).hash}\n`);
+        });
+    }
+
     page.on("response", async resp => {
         const url = resp.url();
         if (resp.status() !== 200) return;
+        // An expired password: the CMS UI answers authenticate's 400 conWS_PasswordExpired with
+        // its own change-password screen, posts auth/updatepassword, then authenticates again
+        // itself (verified live). The login then succeeds as normal, but any saved copy of the
+        // password (profile or .env) is now stale - so report it.
+        if (!passwordChanged && /\/auth\/updatepassword(?:\?|$)/i.test(url)) {
+            try {
+                const body = await resp.json();
+                if (body.resultCode === "conWS_Success") passwordChanged = true;
+            } catch { /* not JSON - ignore */ }
+            return;
+        }
         // Match both the password endpoint (`/auth/authenticate`) and the SSO endpoint
         // (`/auth/authenticateFederated`), plus any future `authenticate{Provider}` variant
         // (e.g. `authenticateSaml`, `authenticateOAuth`). All return the same conWS_Success
@@ -130,7 +163,7 @@ export async function runBrowserLogin({ server, instance, timeoutMs = LOGIN_TIME
             return null;
         }).catch(() => null);
 
-        return { host: server, instance, apiKey: capturedApiKey, cookie, username };
+        return { host: server, instance, apiKey: capturedApiKey, cookie, username, passwordChanged };
     } finally {
         await browser.close().catch(() => {});
     }

@@ -12,11 +12,12 @@ const fullEnv = {
 
 // Replaces the real CmsApi the constructor instantiated with a stub so login/auth flows
 // are inspectable without touching the network.
-function stubCms(dxm) {
+function stubCms(dxm, loginResult = () => ({ resultCode: "conWS_Success" })) {
     const calls = [];
     dxm._cms = {
         login: async (username, password, server, instance, apiKey) => {
             calls.push({ kind: "login", username, password, server, instance, apiKey });
+            return loginResult({ username, password });
         },
         setSession: (args) => {
             calls.push({ kind: "setSession", ...args });
@@ -120,6 +121,202 @@ describe("Dxm._ensureLoggedIn", () => {
         stubCms(dxm);
         await dxm._ensureLoggedIn();
         assert.equal(dxm.getAuthState().authenticated, true);
+    });
+});
+
+// The bodies the CMS returned live on CPUK (HTTP 400 for both); the helper's login() returns them.
+const INVALID = { needsExpirationWarning: false, daysToExpire: -1, resultCode: "conWS_InvalidUserNameOrPassword", errorMessage: "", internalCode: -200, responseValues: null };
+const EXPIRED = { needsExpirationWarning: false, daysToExpire: -1, resultCode: "conWS_PasswordExpired", errorMessage: "Your password has expired. Please update your password.", internalCode: -400, responseValues: null };
+const creds = (password = "p") => ({ server: "cms.example.net", instance: "INST", username: "u", password, apiKey: "k" });
+const logins = calls => calls.filter(c => c.kind === "login").length;
+
+describe("Dxm login failures", () => {
+    test("a rejected password throws, and is not reported as authenticated", async () => {
+        const dxm = new Dxm(fullEnv);
+        stubCms(dxm, () => INVALID);
+        await assert.rejects(() => dxm._ensureLoggedIn(), err => {
+            assert.equal(err.name, "AuthenticationError");
+            assert.equal(err.resultCode, "conWS_InvalidUserNameOrPassword");
+            assert.match(err.message, /^Authentication failed for "u" on cms\.example\.net\/INST: the CMS rejected the username or password/);
+            assert.match(err.message, /will not be tried again.*lock the account/);
+            return true;
+        });
+        assert.equal(dxm._authenticatedFor, null);
+        const state = dxm.getAuthState();
+        assert.equal(state.authenticated, false);
+        assert.equal(state.lastError.resultCode, "conWS_InvalidUserNameOrPassword");
+        assert.match(state.lastError.at, /^\d{4}-\d\d-\d\dT/);
+    });
+
+    test("tool calls after a failure never log in again with the same credentials", async () => {
+        const dxm = new Dxm(fullEnv);
+        const calls = stubCms(dxm, () => INVALID);
+        await assert.rejects(() => dxm._ensureLoggedIn());
+        await assert.rejects(() => dxm._ensureLoggedIn(), /AuthenticationError: Not retried \(this login already failed at .*\)\. Authentication failed/);
+        await assert.rejects(() => dxm._ensureLoggedIn(), err => err.resultCode === "conWS_InvalidUserNameOrPassword");
+        assert.equal(logins(calls), 1);
+    });
+
+    test("reloading an unchanged profile, even after logout, does not retry a rejected password", async () => {
+        const dxm = new Dxm({});
+        const calls = stubCms(dxm, () => INVALID);
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn());
+        dxm.clearCredentials();
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(), /Not retried/);
+        assert.equal(dxm.getAuthState().lastError.resultCode, "conWS_InvalidUserNameOrPassword");
+        assert.equal(logins(calls), 1);
+    });
+
+    test("changed credentials are tried, and a success clears the failure", async () => {
+        const dxm = new Dxm({});
+        const calls = stubCms(dxm, ({ password }) => (password === "new" ? { resultCode: "conWS_Success" } : INVALID));
+        dxm.setCredentials(creds("old"), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn());
+        dxm.setCredentials(creds("new"), { profile: "site" });
+        await dxm._ensureLoggedIn();
+        assert.equal(logins(calls), 2);
+        const state = dxm.getAuthState();
+        assert.equal(state.authenticated, true);
+        assert.equal(state.lastError, undefined);
+        assert.equal(dxm._loginFailure, null);
+    });
+
+    test("a profile's failure says how to update that profile", async () => {
+        const dxm = new Dxm({});
+        stubCms(dxm, () => INVALID);
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(),
+            /npm run profile -- passwd site.*then call login profile=site\. Do not call login with this profile again/);
+        assert.equal(dxm.getAuthState().profile, "site");
+    });
+
+    test(".env credentials' failure points at .env", async () => {
+        const dxm = new Dxm(fullEnv);
+        stubCms(dxm, () => INVALID);
+        await assert.rejects(() => dxm._ensureLoggedIn(), /Put the correct password in \.env .*restart the MCP server/);
+        assert.equal(dxm.getAuthState().profile, null);
+    });
+
+    test("the advice follows the credentials now active, not the ones that first failed", async () => {
+        const dxm = new Dxm(fullEnv);
+        stubCms(dxm, () => INVALID);
+        await assert.rejects(() => dxm._ensureLoggedIn(), /\.env/);
+        dxm.setCredentials({ server: "cms.example.net", instance: "INST", username: "u", password: "p", apiKey: "k" }, { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(), err => /passwd site/.test(err.message) && !/\.env/.test(err.message));
+        assert.match(dxm.getAuthState().lastError.message, /passwd site/);
+    });
+
+    test("an expired password gets its own message, naming where to change it", async () => {
+        const dxm = new Dxm({});
+        const calls = stubCms(dxm, () => EXPIRED);
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(), err => {
+            assert.equal(err.resultCode, "conWS_PasswordExpired");
+            assert.match(err.message, /the password has expired \(conWS_PasswordExpired\)/);
+            assert.match(err.message, /login_browser server=cms\.example\.net instance=INST/);
+            assert.match(err.message, /passwd site/);
+            assert.doesNotMatch(err.message, /rejected the username/);
+            return true;
+        });
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(), /Not retried/);
+        assert.equal(logins(calls), 1);
+    });
+
+    test("any other result code passes the CMS's own message through", async () => {
+        const dxm = new Dxm(fullEnv);
+        stubCms(dxm, () => ({ resultCode: "conWS_AccountLocked", errorMessage: "Account locked." }));
+        await assert.rejects(() => dxm._ensureLoggedIn(),
+            err => err.resultCode === "conWS_AccountLocked" && /refused the login \(conWS_AccountLocked: Account locked\.\)/.test(err.message));
+    });
+
+    test("no response at all is a failure, not a success", async () => {
+        const dxm = new Dxm(fullEnv);
+        stubCms(dxm, () => undefined);
+        await assert.rejects(() => dxm._ensureLoggedIn(), /Could not log in .*no response/);
+        assert.equal(dxm.getAuthState().authenticated, false);
+    });
+
+    test("a thrown login (unreachable, or API key refused) blocks tool calls but allows an explicit retry", async () => {
+        const dxm = new Dxm({});
+        let fail = true;
+        const calls = stubCms(dxm, () => {
+            if (fail) throw new Error("Unable to contact CMS, please check your settings");
+            return { resultCode: "conWS_Success" };
+        });
+        dxm.setCredentials(creds(), { profile: "site" });
+        await assert.rejects(() => dxm._ensureLoggedIn(), err =>
+            err.resultCode === null && /Could not log in as "u".*Unable to contact CMS.*API key/.test(err.message));
+        await assert.rejects(() => dxm._ensureLoggedIn(), /Not retried/);
+        assert.equal(logins(calls), 1);
+
+        fail = false;
+        dxm.setCredentials(creds(), { profile: "site" }); // what login profile=site does
+        await dxm._ensureLoggedIn();
+        assert.equal(logins(calls), 2);
+        assert.equal(dxm.getAuthState().authenticated, true);
+    });
+
+    test("the failure never carries the password or API key", async () => {
+        const dxm = new Dxm({});
+        stubCms(dxm, () => INVALID);
+        dxm.setCredentials({ ...creds("s3cr3t-pw"), apiKey: "s3cr3t-key" }, { profile: "site" });
+        const err = await dxm._ensureLoggedIn().catch(e => e);
+        const text = err.message + JSON.stringify(dxm.getAuthState());
+        assert.doesNotMatch(text, /s3cr3t/);
+    });
+
+    test("a browser session is unaffected by an earlier password failure", async () => {
+        const dxm = new Dxm(fullEnv);
+        const calls = stubCms(dxm, () => INVALID);
+        await assert.rejects(() => dxm._ensureLoggedIn());
+        dxm.setSession({ host: "cms.example.net", instance: "INST", apiKey: "k", cookie: ["a=b"] });
+        await dxm._ensureLoggedIn();
+        const state = dxm.getAuthState();
+        assert.equal(state.authenticated, true);
+        assert.equal(state.lastError, undefined);
+        assert.equal(calls.filter(c => c.kind === "setSession").length, 1);
+    });
+});
+
+describe("Dxm.openBrowserLogin", () => {
+    const captured = { host: "cms.example.net", instance: "INST", apiKey: "k", cookie: ["a=b"], username: null };
+
+    test("returns the session's auth state with passwordChanged: false for a normal login", async () => {
+        const dxm = new Dxm({});
+        stubCms(dxm);
+        dxm._runBrowserLogin = async () => ({ ...captured, passwordChanged: false });
+        const state = await dxm.openBrowserLogin({ server: "cms.example.net", instance: "INST" });
+        assert.equal(state.authenticated, true);
+        assert.equal(state.mode, "session");
+        assert.equal(state.passwordChanged, false);
+        assert.equal(state.note, undefined);
+    });
+
+    test("says the saved password is stale when it was changed in the browser", async () => {
+        const dxm = new Dxm({});
+        stubCms(dxm);
+        dxm._runBrowserLogin = async () => ({ ...captured, passwordChanged: true });
+        const state = await dxm.openBrowserLogin({ server: "cms.example.net", instance: "INST" });
+        assert.equal(state.authenticated, true);
+        assert.equal(state.passwordChanged, true);
+        assert.match(state.note, /password was changed.*npm run profile -- passwd <name>.*\.env/);
+        assert.equal(dxm._session.passwordChanged, undefined, "the flag is not part of the session");
+    });
+
+    test("an expired profile password points at login_browser; .env credentials don't", async () => {
+        for (const [profile, expect] of [["site", /login_browser server=cms\.example\.net instance=INST.*passwd site/], [null, /sign in at https:\/\/cms\.example\.net\/INST\/.*\.env/]]) {
+            const dxm = new Dxm({});
+            stubCms(dxm, () => EXPIRED);
+            dxm.setCredentials(creds(), { profile });
+            await assert.rejects(() => dxm._ensureLoggedIn(), err => {
+                assert.match(err.message, expect);
+                if (!profile) assert.doesNotMatch(err.message, /login_browser/);
+                return true;
+            });
+        }
     });
 });
 

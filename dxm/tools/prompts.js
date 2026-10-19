@@ -39,7 +39,9 @@ export function registerCredentialPrompts(server) {
         ({ profile }) => userMessage(
 `Authenticate to DXM using the saved credential profile "${profile}". Call the login tool with profile="${profile}".
 
-If no such profile exists yet, save it first from a terminal with \`npm run profile -- add ${profile}\` — credentials cannot be entered through the chat.`
+If no such profile exists yet, save it first from a terminal with \`npm run profile -- add ${profile}\` — credentials cannot be entered through the chat.
+
+If the login fails, show the user the error and stop. Do not call login again with this profile: three failed logins lock the account until an administrator resets it. The error says what the user needs to change first (for example \`npm run profile -- passwd ${profile}\`, or changing an expired password in the CMS).`
         )
     );
 
@@ -54,6 +56,8 @@ If no such profile exists yet, save it first from a terminal with \`npm run prof
 `Authenticate to DXM by opening a browser window pointed at https://${server}/${instance}/.
 
 Call the login_browser tool with server="${server}" and instance="${instance}". A Chromium window will open — complete the CMS login there using any provider the CMS supports (standard password, SSO, MFA). The MCP server will capture the session cookies and per-instance API key automatically; nothing is persisted to disk.
+
+If the password has expired, the CMS page asks for a new one and the login then completes. In that case the result has passwordChanged: true: tell the user to update any saved copy of the password (\`npm run profile -- passwd <name>\` from a terminal, or CMS_PASSWORD in .env), or the next password login with it will fail.
 
 After login, call whoami to confirm the authenticated state.`
         )
