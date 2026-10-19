@@ -833,6 +833,37 @@ Call site_summary and present the returned summary.`
         )
     );
 
+    server.prompt(
+        "audit_report",
+        "Show who did what in DXM: the system audit log, optionally for one asset, user or kind of action",
+        {
+            asset: z.string().optional().describe("Optional: a numeric asset ID or full CMS path to show the history of"),
+            since: z.string().optional().describe("Optional: earliest day to include, as YYYY-MM-DD (default: the last 7 days)"),
+            action: z.string().optional().describe("Optional: one kind of action, e.g. \"Logged In\", \"Login Failed\", \"Edited\", \"Route\"")
+        },
+        ({ asset, since, action }) => userMessage(
+`Show the DXM audit log${asset ? ` for the asset "${asset}"` : ""}${action ? `, only "${action}" entries` : ""}.
+
+${asset ? `1. If "${asset}" is not a numeric ID, call find_asset to resolve it.\n` : ""}${asset ? "2" : "1"}. Call audit_report with start_date=${since ? since : "<7 days before today, as YYYY-MM-DD>"}${asset ? ", asset_id=<numericId>" : ""}${action ? `, and action="${action}" (a name or an id; if it is ambiguous or unknown, the error lists the candidates: ask the user which they meant)` : ""}.
+${asset ? "3" : "2"}. Present the entries as a table: date, user, action, asset label and id, description. Say how many entries there are in total, and if there are more pages, offer to fetch them. Leave out the "Audited System" entries that viewing this report itself creates, unless the user asks about them.`
+        )
+    );
+
+    server.prompt(
+        "custom_audit_report",
+        "Show the Custom audit log entries (from log_message, or Util.Log in template and library code), optionally for one asset",
+        {
+            asset: z.string().optional().describe("Optional: a numeric asset ID or full CMS path the entries were logged against"),
+            search: z.string().optional().describe("Optional: only entries whose message contains this text")
+        },
+        ({ asset, search }) => userMessage(
+`Show the Custom entries in the DXM audit log${asset ? ` for the asset "${asset}"` : ""}${search ? ` containing "${search}"` : ""}.
+
+${asset ? `1. If "${asset}" is not a numeric ID, call find_asset to resolve it.\n2` : "1"}. Call custom_audit_report${asset ? " with asset_id=<numericId>" : ""}${search ? `${asset ? " and" : " with"} search="${search}"` : ""}.
+${asset ? "3" : "2"}. Present the entries newest first: date, user, asset label and id, and the message (description). Messages can be long or contain JSON; show them in full in a code block when they do. Say how many entries there are in total, and offer more pages if there are any.`
+        )
+    );
+
     // ------- field write prompts -------
 
     server.prompt(

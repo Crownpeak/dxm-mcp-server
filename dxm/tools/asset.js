@@ -296,7 +296,7 @@ export function registerWriteTools(server, dxm) {
 
     server.tool(
         "log_message",
-        "Write a message to the DXM log. With asset_id the message is attached to that asset; without, it goes to the system log.",
+        "Write a message to the DXM log. With asset_id the message is attached to that asset; without, it goes to the system log. It is recorded in the audit log as a Custom entry (the same place Util.Log in template code writes), which custom_audit_report reads back.",
         {
             message: z.string().describe("The message to log"),
             asset_id: z.number().optional().describe("Optional asset ID to attach the message to")

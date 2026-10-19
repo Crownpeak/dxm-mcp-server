@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant — Claude Desktop, Claude Code, or any MCP-compatible client — work with your [Crownpeak DXM](https://www.crownpeak.com/products/digital-experience-management) CMS through natural language. Browse the asset tree, read and edit fields, create and publish files, run compilations, manage users, and more.
 
-The server exposes **63 tools and 65 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
+The server exposes **65 tools and 67 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
 
 ---
 
@@ -212,7 +212,7 @@ The full tool and prompt rosters (with names, arguments, and one-line descriptio
 npm test
 ```
 
-Runs the full suite (270 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
+Runs the full suite (289 tests) using Node's built-in test runner. No network calls — every test stubs the CMS helper, so the suite is safe in CI and against shared credentials.
 
 ---
 
