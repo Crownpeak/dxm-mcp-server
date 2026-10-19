@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { toolHandler, jsonText } from "./util.js";
-import { AUDIT_MAX_PAGE_SIZE } from "../report.js";
+import { AUDIT_MAX_PAGE_SIZE, PUBLISH_HISTORY_DEFAULT_LIMIT, PUBLISH_HISTORY_MAX_LIMIT } from "../report.js";
 
 // Filters shared by audit_report and custom_audit_report.
 const AUDIT_FILTERS = {
@@ -64,5 +64,24 @@ export function registerReadTools(server, dxm) {
         "these. " + AUDIT_RESULT,
         { ...AUDIT_FILTERS },
         toolHandler(async args => jsonText(await dxm.customAuditReport(auditArgs(args))))
+    );
+
+    server.tool(
+        "asset_publish_history",
+        "Show what publishing did with an asset, file by file: each published (or removed, skipped or failed) file with its date, publishing " +
+        "session, action (e.g. \"HTML file(2)\", \"File removed(15)\", \"Template Error(7)\"), the reason it was queued, the package and connector " +
+        "it went to, the published filename and size, and any error text. Give at least one of asset_id, session_id or file_name; they combine. " +
+        "file_name matches any part of the published path, case-insensitively. A file published through two connectors appears once per " +
+        `connector. Newest first; returns { total, returned, truncated, history }, at most limit entries (default ${PUBLISH_HISTORY_DEFAULT_LIMIT}).`,
+        {
+            asset_id: z.number().int().optional().describe("Only this asset's publishing"),
+            session_id: z.number().int().optional().describe("Only this publishing session (as publish_file, republish_file or publishing_activity_summary give)"),
+            file_name: z.string().optional().describe("Only files whose published path contains this text, e.g. \"index.html\" or \"/about/\""),
+            limit: z.number().int().min(1).max(PUBLISH_HISTORY_MAX_LIMIT).optional().describe(`Most entries to return (default ${PUBLISH_HISTORY_DEFAULT_LIMIT}, at most ${PUBLISH_HISTORY_MAX_LIMIT})`),
+            oldest_first: z.boolean().optional().describe("Sort oldest first instead of newest first")
+        },
+        toolHandler(async ({ asset_id, session_id, file_name, limit, oldest_first }) => jsonText(await dxm.assetPublishHistory({
+            assetId: asset_id, sessionId: session_id, fileName: file_name, limit, oldestFirst: oldest_first
+        })))
     );
 }

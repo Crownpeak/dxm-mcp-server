@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { publishingErrors, siteSummary, auditReport, customAuditReport, auditActions, resolveAuditAction, AUDIT_REPORT_PATH, AUDIT_ACTIONS_PATH } from "../dxm/report.js";
+import { publishingErrors, siteSummary, auditReport, customAuditReport, auditActions, resolveAuditAction, assetPublishHistory, AUDIT_REPORT_PATH, AUDIT_ACTIONS_PATH, ASSET_PUBLISH_HISTORY_PATH } from "../dxm/report.js";
 import { registerReadTools } from "../dxm/tools/report.js";
 import { makeFakeCms, makeFakeDxm } from "./_helpers.js";
 
@@ -245,5 +245,84 @@ describe("audit_report / custom_audit_report tools", () => {
         const { handlers, calls } = register();
         await handlers.get("custom_audit_report")({ asset_id: 384069, search: "Point", page: 2, page_size: 10, oldest_first: true });
         assert.deepEqual(calls[0], { tool: "custom", startDate: undefined, endDate: undefined, userId: undefined, assetId: 384069, label: undefined, search: "Point", page: 2, pageSize: 10, oldestFirst: true });
+    });
+});
+
+describe("assetPublishHistory", () => {
+    // Rows as the CMS returned them live on CPUK for asset 384206 (out of date order, as live).
+    const row = over => ({
+        action: "HTML file(2)", duration: 1, endDate: "2026-10-15T13:10:54.07Z", errorText: "",
+        filename: "/wwwroot-demo/cpuk/stage/richard-lund/surety-test-2021-10-22/test.aspx", packageName: "Stage Site",
+        pubHostName: "USE1-CMS-PUB-1", reason: "Queue workflow command without dependencies(148)", sessionId: 124990, subReason: "",
+        transferSize: 15, assetId: 384206, date: "2026-10-15T13:10:53.07Z", label: null, user: null, userId: 0,
+        connectorId: 35, connectorName: "Server W1", ...over
+    });
+    const ERROR = row({ action: "Template Error(7)", duration: 0, errorText: "error CS0246: The type or namespace name 'Surety_Test_2021_10_22' could not be found", filename: "/Richard Lund/Surety Test 2021-10-22/Test", sessionId: 124988, transferSize: 0, date: "2026-10-15T13:08:25.325Z", endDate: "2026-10-15T13:08:25.325Z", pubHostName: "USE1-CMS-PUB-7" });
+    const LATER = row({ sessionId: 124994, date: "2026-10-15T13:25:16.449Z", reason: "Queue workflow command(138)" });
+    const W2 = row({ connectorId: 36, connectorName: "Server W2" });
+    const ENVELOPE = { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, cookie: ["AWSALB=COOKIE-SECRET"], isSuccessful: true };
+    function fake(history = [ERROR, row(), LATER, W2]) {
+        const calls = [];
+        const cms = makeFakeCms({ Util: { makeCall: async (c, path, body) => { calls.push({ path, body }); return { ...ENVELOPE, history, total: 0 }; } } });
+        return { calls, dxm: makeFakeDxm(cms) };
+    }
+
+    test("posts only the filters given", async () => {
+        const f = fake();
+        await assetPublishHistory(f.dxm, { assetId: 384206 });
+        await assetPublishHistory(f.dxm, { sessionId: 124990, fileName: "test.aspx" });
+        assert.deepEqual(f.calls, [
+            { path: "/Report/asset-publish-history-all", body: { assetId: 384206 } },
+            { path: ASSET_PUBLISH_HISTORY_PATH, body: { sessionId: 124990, fileName: "test.aspx" } }
+        ]);
+    });
+
+    test("allow-lists each row, sorts newest first, and keeps one row per connector", async () => {
+        const result = await assetPublishHistory(fake().dxm, { assetId: 384206 });
+        assert.equal(result.total, 4);
+        assert.equal(result.truncated, false);
+        assert.deepEqual(result.history.map(h => `${h.sessionId}/${h.connectorName}`), ["124994/Server W1", "124990/Server W1", "124990/Server W2", "124988/Server W1"]);
+        assert.deepEqual(result.history[1], {
+            date: "2026-10-15T13:10:53.07Z", endDate: "2026-10-15T13:10:54.07Z", durationSeconds: 1, sessionId: 124990, assetId: 384206,
+            action: "HTML file(2)", reason: "Queue workflow command without dependencies(148)", subReason: null, errorText: null,
+            filename: "/wwwroot-demo/cpuk/stage/richard-lund/surety-test-2021-10-22/test.aspx", packageName: "Stage Site",
+            connectorId: 35, connectorName: "Server W1", transferSize: 15, publisher: "USE1-CMS-PUB-1", label: null, user: null, userId: null
+        });
+        assert.match(result.history[3].errorText, /CS0246/);
+        assert.doesNotMatch(JSON.stringify(result), /SECRET/);
+    });
+
+    test("oldest_first reverses the order; limit caps it and says so", async () => {
+        const f = fake();
+        assert.equal((await assetPublishHistory(f.dxm, { assetId: 1, oldestFirst: true })).history[0].sessionId, 124988);
+        const capped = await assetPublishHistory(f.dxm, { assetId: 1, limit: 2 });
+        assert.deepEqual([capped.total, capped.returned, capped.truncated, capped.history.length], [4, 2, true, 2]);
+    });
+
+    test("needs a filter, and a sane limit, before calling the CMS", async () => {
+        const f = fake();
+        await assert.rejects(() => assetPublishHistory(f.dxm, {}), /at least one of assetId, sessionId or fileName/);
+        await assert.rejects(() => assetPublishHistory(f.dxm, { fileName: "" }), /at least one of/);
+        await assert.rejects(() => assetPublishHistory(f.dxm, { assetId: 1, limit: 1001 }), /between 1 and 1000/);
+        assert.equal(f.calls.length, 0);
+        assert.equal(f.dxm.ensureLoginCalls, 0);
+    });
+
+    test("an asset with no history (history: [] or null) is empty, not an error", async () => {
+        for (const history of [[], null]) {
+            assert.deepEqual(await assetPublishHistory(fake(history).dxm, { assetId: 999999999 }), { total: 0, returned: 0, truncated: false, history: [] });
+        }
+    });
+
+    test("throws the CMS's message on failure", async () => {
+        const cms = makeFakeCms({ Util: { makeCall: async () => ({ resultCode: "conWS_GeneralError", errorMessage: "boom", isSuccessful: false }) } });
+        await assert.rejects(() => assetPublishHistory(makeFakeDxm(cms), { assetId: 1 }), /Could not read the asset publish history: boom/);
+    });
+
+    test("the tool maps its arguments", async () => {
+        const handlers = new Map(), calls = [];
+        registerReadTools({ tool: (name, ...rest) => handlers.set(name, rest.at(-1)) }, { assetPublishHistory: async a => { calls.push(a); return {}; } });
+        await handlers.get("asset_publish_history")({ asset_id: 384206, session_id: 124990, file_name: "test", limit: 5, oldest_first: true });
+        assert.deepEqual(calls, [{ assetId: 384206, sessionId: 124990, fileName: "test", limit: 5, oldestFirst: true }]);
     });
 });

@@ -151,3 +151,64 @@ export async function customAuditReport(dxm, filters = {}) {
     await dxm._ensureLoggedIn();
     return runAuditReport(dxm, AUDIT_ACTION_CUSTOM, filters);
 }
+
+// What publishing did with an asset, file by file. No helper wrapper. The "-all" variant takes
+// only these three filters and has no paging; /Report/assetpublishhistory is the paged one.
+export const ASSET_PUBLISH_HISTORY_PATH = "/Report/asset-publish-history-all";
+export const PUBLISH_HISTORY_DEFAULT_LIMIT = 100;
+export const PUBLISH_HISTORY_MAX_LIMIT = 1000;
+
+// Allow-listed. "" becomes null; userId 0 (every CPUK row, alongside null user and label)
+// becomes null. duration is in seconds (endDate - date), transferSize in bytes.
+function mapPublishHistory(h) {
+    return {
+        date: h.date,
+        endDate: h.endDate ?? null,
+        durationSeconds: h.duration ?? null,
+        sessionId: h.sessionId,
+        assetId: h.assetId,
+        action: h.action ?? null,
+        reason: h.reason || null,
+        subReason: h.subReason || null,
+        errorText: h.errorText || null,
+        filename: h.filename || null,
+        packageName: h.packageName || null,
+        connectorId: h.connectorId ?? null,
+        connectorName: h.connectorName || null,
+        transferSize: h.transferSize ?? null,
+        publisher: h.pubHostName || null,
+        label: h.label || null,
+        user: h.user || null,
+        userId: h.userId > 0 ? h.userId : null
+    };
+}
+
+// Verified on CPUK:
+// - With no filter the CMS returns history: null, so one of the three is required.
+// - fileName is a case-insensitive substring of the row's filename: the published path (e.g.
+//   /wwwroot-demo/.../test.aspx), or the CMS path for a template error.
+// - Rows come back in no useful order (not by date, not by session), so they're sorted here,
+//   newest first. One file published through two connectors is two rows, one per connector.
+// - There's no paging and an asset's history only grows, so `limit` caps what's returned;
+//   total says how many there were.
+export async function assetPublishHistory(dxm, { assetId, sessionId, fileName, limit = PUBLISH_HISTORY_DEFAULT_LIMIT, oldestFirst = false } = {}) {
+    const has = v => v !== undefined && v !== null && v !== "";
+    if (!has(assetId) && !has(sessionId) && !has(fileName)) {
+        throw new Error("Give at least one of assetId, sessionId or fileName: with none the CMS returns nothing.");
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > PUBLISH_HISTORY_MAX_LIMIT) {
+        throw new Error(`limit must be between 1 and ${PUBLISH_HISTORY_MAX_LIMIT} (got ${limit}).`);
+    }
+    await dxm._ensureLoggedIn();
+    const cms = dxm._cms;
+    const body = {};
+    if (has(assetId)) body.assetId = assetId;
+    if (has(sessionId)) body.sessionId = sessionId;
+    if (has(fileName)) body.fileName = fileName;
+    const data = responseData(await cms.Util.makeCall(cms, ASSET_PUBLISH_HISTORY_PATH, body), "Could not read the asset publish history");
+    const rows = (Array.isArray(data.history) ? data.history : []).map(mapPublishHistory);
+    const time = r => Date.parse(r.date) || 0;
+    rows.sort((a, b) => (oldestFirst ? time(a) - time(b) : time(b) - time(a)) || (oldestFirst ? a.sessionId - b.sessionId : b.sessionId - a.sessionId));
+    const history = rows.slice(0, limit);
+    return { total: rows.length, returned: history.length, truncated: rows.length > limit, history };
+}

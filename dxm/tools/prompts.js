@@ -850,6 +850,19 @@ ${asset ? "3" : "2"}. Present the entries as a table: date, user, action, asset 
     );
 
     server.prompt(
+        "asset_publish_history",
+        "Show what publishing did with a DXM asset, file by file: where it went, when, and any errors",
+        { asset: z.string().describe("A numeric asset ID or a full CMS path") },
+        ({ asset }) => userMessage(
+`Show the publishing history of the DXM asset identified by "${asset}".
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it.
+2. Call asset_publish_history with asset_id=<numericId>.
+3. Present it newest first as a table: date, session, action, package, connector, published filename and size. A file published through two connectors appears once per connector; group those rows by session. Call out any entry with errorText (e.g. a Template Error) and show its error. Say how many entries there are in total, and if truncated is true, offer to show more.`
+        )
+    );
+
+    server.prompt(
         "custom_audit_report",
         "Show the Custom audit log entries (from log_message, or Util.Log in template and library code), optionally for one asset",
         {
