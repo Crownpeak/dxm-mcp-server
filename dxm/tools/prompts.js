@@ -897,6 +897,49 @@ ${asset ? "3" : "2"}. Present the entries newest first: date, user, asset label 
         )
     );
 
+    server.prompt(
+        "search",
+        "Find DXM assets by text in their name (label), optionally also in their field content",
+        {
+            text: z.string().describe("Text to look for in asset labels"),
+            include_content: z.string().optional().describe("Optional: \"true\" to also search text inside field content (slower)")
+        },
+        ({ text, include_content }) => userMessage(
+`Search DXM for assets whose label contains "${text}".
+
+1. Call search with query="${text}"${String(include_content ?? "").trim().toLowerCase() === "true" ? ", include_content=true" : ""}.
+2. Present the results as a table: id, label, type, fullPath and status. If mayHaveMore is true, say so and offer the next page. If the user wants to narrow by anything other than the name (type, status, template, dates, users, custom fields), use advanced_search instead.`
+        )
+    );
+
+    server.prompt(
+        "advanced_search",
+        "Find DXM assets by conditions on their properties or field values (type, status, template, dates, users, custom fields...)",
+        {
+            conditions: z.string().describe("The conditions in plain words, e.g. \"folders created since 1 January 2025\" or \"files using template 3814 whose class_name is hero\""),
+            folder: z.string().optional().describe("Optional: a numeric folder ID or full CMS path to search inside (default: the whole instance)")
+        },
+        ({ conditions, folder }) => userMessage(
+`Search DXM for assets matching: ${conditions}${folder ? `, inside the folder "${folder}"` : ""}.
+
+1. ${folder ? `If "${folder}" is not a numeric ID, call find_asset to resolve it; it becomes base_asset_id.
+2. ` : ""}Turn the conditions into advanced_search filters. Built-in fields are listed in the tool description; for anything that might be a custom field (a field a template defines), call search_fields with search=<part of the name> to find its exact name first. A field that holds an id (Type, Status, Workflow, TemplateName, Model, CreatedBy...) takes the id, not its name (Type also takes File or Folder): look ids up with list_users, list_workflows, or read_full_asset on an example asset, rather than guessing. If the filter is refused, the error says which operations the field accepts.
+${folder ? "3" : "2"}. Call advanced_search. If limitReached is true, the total is only a lower bound: say so and offer to narrow the search rather than paging through everything. Use light=true when only ids, names and paths are needed.
+${folder ? "4" : "3"}. Present the results as a table: id, label, type, fullPath and status. State the total, and offer the next page if there is one.`
+        )
+    );
+
+    server.prompt(
+        "search_fields",
+        "List the fields a DXM advanced search can filter on, including this instance's custom fields",
+        { text: z.string().optional().describe("Optional: only fields whose name contains this text") },
+        ({ text }) => userMessage(
+`Show which fields can be used to filter an advanced DXM search${text ? ` whose name contains "${text}"` : ""}.
+
+Call search_fields${text ? ` with search="${text}"` : ""}. Present the built-in fields with their type and the operators each takes, then the custom fields. If there are many custom fields and the user has not named one, list them compactly and ask what they want to filter on.`
+        )
+    );
+
     // ------- field write prompts -------
 
     server.prompt(

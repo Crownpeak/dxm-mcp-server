@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant — Claude Desktop, Claude Code, or any MCP-compatible client — work with your [Crownpeak DXM](https://www.crownpeak.com/products/digital-experience-management) CMS through natural language. Browse the asset tree, read and edit fields, create and publish files, run compilations, manage users, and more.
 
-The server exposes **67 tools and 69 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
+The server exposes **70 tools and 72 prompts** spanning the read and write surface of `crownpeak-dxm-accessapi-helper`. It comes in two permission scopes (full and read-only) over two transports (stdio and HTTP), so you can pick the safest combination for each use case.
 
 ---
 

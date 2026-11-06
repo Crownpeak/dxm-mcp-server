@@ -7,6 +7,7 @@ import * as Build from "./build.js";
 import * as Properties from "./properties.js";
 import * as Users from "./users.js";
 import * as Report from "./report.js";
+import * as Search from "./search.js";
 import * as Prompts from "./prompts.js";
 import { installDebugLogging } from "./util.js";
 
@@ -20,6 +21,7 @@ export function registerReadTools(server, dxm) {
     Properties.registerReadTools(server, dxm);
     Users.registerReadTools(server, dxm);
     Report.registerReadTools(server, dxm);
+    Search.registerReadTools(server, dxm);
 }
 
 export function registerWriteTools(server, dxm) {
@@ -46,6 +48,7 @@ export function registerReadToolsHttp(server, dxm) {
     Properties.registerReadTools(server, dxm);
     Users.registerReadTools(server, dxm);
     Report.registerReadTools(server, dxm);
+    Search.registerReadTools(server, dxm);
 }
 
 export function registerPrompts(server) {

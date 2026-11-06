@@ -9,6 +9,7 @@ import * as Build from "./build.js";
 import * as Properties from "./properties.js";
 import * as Users from "./users.js";
 import * as Report from "./report.js";
+import * as Search from "./search.js";
 import * as Profiles from "./profiles.js";
 import { AuthenticationError, credentialFingerprint, describeLoginFailure } from "./login-failure.js";
 
@@ -107,7 +108,7 @@ export default class {
         this._cms = new CmsApi();
         if (isDebugEnabled()) installFetchLogging(this._cms);
         this._credentials = this._readEnv(env);
-        for (const mod of [Assets, Binary, Publish, Workflow, Build, Properties, Users, Report]) {
+        for (const mod of [Assets, Binary, Publish, Workflow, Build, Properties, Users, Report, Search]) {
             mixin(this, mod);
         }
     }
