@@ -243,6 +243,23 @@ ${folder_id
     );
 
     server.prompt(
+        "clone_file",
+        "Clone a DXM asset under a new name",
+        {
+            asset: z.string().describe("A numeric asset ID or a full CMS path"),
+            new_name: z.string().describe("The label for the new asset"),
+            include_hidden_assets: z.string().optional().describe('Set to "true" to also clone hidden child assets')
+        },
+        ({ asset, new_name, include_hidden_assets }) => userMessage(
+`Clone the DXM asset identified by "${asset}" as "${new_name}".
+
+1. If "${asset}" is not a numeric ID, call find_asset to resolve it to a numeric ID.
+2. Call clone_file with the numeric ID and new_name "${new_name}"${include_hidden_assets === "true" ? " and include_hidden_assets=true" : ""}.
+3. Display the metadata of the new asset: ID, label, type, fullPath, and status. If asset is null, say the clone was made but could not be located, and use find_asset or list_folder on the original's folder to find it.`
+        )
+    );
+
+    server.prompt(
         "route_file",
         "Route a DXM asset to a specific workflow state",
         {

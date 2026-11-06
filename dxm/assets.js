@@ -192,6 +192,39 @@ export async function branchAsset(dxm, id) {
     return mapAsset(dxm._cms, result.asset);
 }
 
+export const ASSET_CLONE_PATH = "/Asset/Clone";
+
+// Clones an asset (a folder is cloned with its contents) next to the original, under a new label.
+// The helper has no wrapper for /Asset/Clone, so this goes through the generic makeCall. The body
+// is Swagger's AssetCloneRequest: `label` is the new name (not `newName`) and `includeHiddenAssets`
+// adds hidden children to a folder clone. Swagger's other request fields (clearPublishingProperties,
+// snippet and selectedStates options) are not exposed.
+//
+// The response carries no id for the new asset (verified live on CPUK: just `wcoSnippets: []` in
+// the usual envelope), but the clone lands in the original's folder under the new label, so the
+// original's path is read first and `<folder>/<label>` resolved afterwards. `asset` is null if that
+// lookup fails (e.g. the CMS had to de-duplicate the label); the clone itself has still been made.
+export async function cloneAsset(dxm, id, newName, includeHiddenAssets = false) {
+    const label = typeof newName === "string" ? newName.trim() : "";
+    if (!label) throw new Error("A new name is required to clone an asset");
+    const source = await findAsset(dxm, id);
+    const cms = dxm._cms;
+    const response = await cms.Util.makeCall(cms, ASSET_CLONE_PATH, {
+        assetId: id,
+        label,
+        includeHiddenAssets: includeHiddenAssets === true
+    });
+    const { wcoSnippets = [] } = responseData(response, `Could not clone asset ${id}`);
+    const folderPath = source.fullPath.slice(0, source.fullPath.lastIndexOf("/"));
+    let asset = null;
+    try {
+        asset = await findAsset(dxm, `${folderPath}/${label}`);
+    } catch {
+        // Cloned but not found where expected; reported as asset: null rather than as a failure.
+    }
+    return { asset, sourceId: id, wcoSnippets };
+}
+
 export async function moveAsset(dxm, id, destinationFolderId) {
     await dxm._ensureLoggedIn();
     const request = new dxm._cms.Asset.MoveRequest(id, destinationFolderId);

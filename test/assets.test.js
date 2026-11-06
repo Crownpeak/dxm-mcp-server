@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
     findAsset, readFullAsset, getPath, listFolder, listFields,
     setFields, deleteFields, setCode,
-    deleteAsset, undeleteAsset, branchAsset,
+    deleteAsset, undeleteAsset, branchAsset, cloneAsset, ASSET_CLONE_PATH,
     moveAsset, renameAsset,
     createAsset, createFolder, createFolderWithModel,
     createProject, createSiteRoot, createLibraryReference,
@@ -444,6 +444,54 @@ describe("branchAsset", () => {
         assert.equal(result.id, 99);
         assert.equal(result.status, "Draft");
         assert.equal(result.type, "File");
+    });
+});
+
+describe("cloneAsset", () => {
+    const ENVELOPE = { resultCode: "conWS_Success", errorMessage: "", internalCode: 0, responseValues: null, isSuccessful: true, cookie: ["secret=1"] };
+    const rec = (id, label, path) => ({ asset: { id, label, type: 2, fullPath: path, statusName: "Draft", folder_id: 7 } });
+
+    function fakeCms({ response = { ...ENVELOPE, wcoSnippets: [] }, calls = [] } = {}) {
+        return makeFakeCms({
+            Asset: {
+                read: async id => id === 5 ? rec(5, "Orig", "/Site/Folder/Orig") : rec(6, "Copy", "/Site/Folder/Copy"),
+                exists: async path => path === "/Site/Folder/Copy" ? { exists: true, assetId: 6 } : { exists: false }
+            },
+            Util: { makeCall: async (c, path, body) => { calls.push({ path, body }); return response; } }
+        });
+    }
+
+    test("posts assetId, label and includeHiddenAssets to /Asset/Clone, then resolves the new asset by path", async () => {
+        const calls = [];
+        const result = await cloneAsset(makeFakeDxm(fakeCms({ calls })), 5, "Copy", true);
+        assert.deepEqual(calls, [{ path: ASSET_CLONE_PATH, body: { assetId: 5, label: "Copy", includeHiddenAssets: true } }]);
+        assert.equal(result.asset.id, 6);
+        assert.equal(result.asset.fullPath, "/Site/Folder/Copy");
+        assert.equal(result.sourceId, 5);
+        assert.deepEqual(result.wcoSnippets, []);
+    });
+
+    test("includeHiddenAssets defaults to false and the response envelope (cookies) is not returned", async () => {
+        const calls = [];
+        const result = await cloneAsset(makeFakeDxm(fakeCms({ calls })), 5, "Copy");
+        assert.equal(calls[0].body.includeHiddenAssets, false);
+        assert.ok(!JSON.stringify(result).includes("secret"));
+    });
+
+    test("returns asset: null when the clone cannot be found under the new name", async () => {
+        const result = await cloneAsset(makeFakeDxm(fakeCms()), 5, "Renamed By CMS");
+        assert.equal(result.asset, null);
+    });
+
+    test("throws the CMS message when the clone is refused", async () => {
+        const response = { resultCode: "conWS_GeneralError", errorMessage: "nope", isSuccessful: false };
+        await assert.rejects(cloneAsset(makeFakeDxm(fakeCms({ response })), 5, "Copy"), /Could not clone asset 5: nope/);
+    });
+
+    test("rejects an empty name before calling the CMS", async () => {
+        const calls = [];
+        await assert.rejects(cloneAsset(makeFakeDxm(fakeCms({ calls })), 5, "  "), /new name is required/);
+        assert.equal(calls.length, 0);
     });
 });
 

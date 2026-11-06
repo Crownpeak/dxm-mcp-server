@@ -161,6 +161,19 @@ export function registerWriteTools(server, dxm) {
     );
 
     server.tool(
+        "clone_file",
+        "Clone a DXM asset under a new name, in the same folder as the original (a folder is cloned with its contents). Returns { asset, sourceId, wcoSnippets }: asset is the new asset's metadata, or null if the clone was made but could not be found by its new name. Use include_hidden_assets to include hidden children when cloning a folder. Not the same as branch_file, which makes a draft copy of the same asset.",
+        {
+            id: z.number().describe("The ID of the asset to clone"),
+            new_name: z.string().describe("The label for the new asset"),
+            include_hidden_assets: z.boolean().optional().describe("Also clone hidden child assets (default false)")
+        },
+        toolHandler(async ({id, new_name, include_hidden_assets}) =>
+            jsonText(await dxm.cloneAsset(id, new_name, include_hidden_assets === true))
+        )
+    );
+
+    server.tool(
         "move_file",
         "Move a DXM asset into a different folder",
         {

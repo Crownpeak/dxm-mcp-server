@@ -48,7 +48,8 @@ function redactJson(bodyString) {
 }
 
 // Debug-only: wraps the helper's `fetch` — an instance property (see the CJS package's api.js
-// constructor: `this.fetch = require("node-fetch")`), not a module-level import — so this can be
+// constructor: `this.fetch = globalThis.fetch.bind(globalThis)` since helper 1.5.0, node-fetch
+// before), not a module-level import — so this can be
 // monkey-patched from here without ever touching node_modules. Logs every request/response for
 // every domain object (Asset, Workflow, User, ...), since they all funnel through this one fetch
 // via the helper's postRequest/getCmsRequest/getCmsRequestRaw. Redacts secret headers and fields
@@ -69,7 +70,7 @@ function installFetchLogging(cms) {
                 console.error(`[dxm-http] ← ${response.status} (${Date.now() - start}ms) <binary, content-type=${contentType || "unknown"}>`);
                 return response;
             }
-            // Deliberately NOT response.clone(): node-fetch v2's clone() tees the body into two
+            // Deliberately NOT response.clone(): node-fetch v2's clone() (the helper's fetch before 1.5.0) tees the body into two
             // PassThrough streams. Reading one (for the log) while the caller reads the other
             // later works for small bodies but deadlocks on larger ones — the un-drained tee
             // fills its buffer, backpressure pauses the shared underlying stream, and the tee
